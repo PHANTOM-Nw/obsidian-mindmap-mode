@@ -54,7 +54,7 @@ jobs:
       - name: Package a convenience zip
         run: |
           mkdir -p dist/mindmap-mode
-          cp main.js manifest.json styles.css dist/mindmap-mode/
+          cp main.js manifest.json styles.css LICENSE dist/mindmap-mode/
           (cd dist && zip -r mindmap-mode.zip mindmap-mode)
 
       - name: Write release notes

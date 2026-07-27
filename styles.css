@@ -162,7 +162,7 @@
 	font-weight: 550;
 }
 
-/* Deeper topics sit on the line, XMind style, rather than in a heavy box.
+/* Deeper topics sit on the line rather than in a heavy box.
    Body cards are excluded by name rather than by specificity: this selector
    scores higher than the one that styles them, so a :not() is what keeps note
    content from being drawn as a topic. */

@@ -1,7 +1,7 @@
 {
   "name": "obsidian-mindmap-mode",
   "version": "1.0.0",
-  "description": "Toggle any note into an editable xmind-style mind map, in place, without ever creating a file.",
+  "description": "Toggle any note into an editable, radial mind map in place, without ever creating a file.",
   "type": "module",
   "main": "main.js",
   "scripts": {
@@ -17,9 +17,19 @@
     "obsidian",
     "obsidian-plugin",
     "mindmap",
-    "xmind"
+    "mind-map",
+    "outline"
   ],
+  "author": "PHANTOM-Nw",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PHANTOM-Nw/obsidian-mindmap-mode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PHANTOM-Nw/obsidian-mindmap-mode/issues"
+  },
+  "homepage": "https://github.com/PHANTOM-Nw/obsidian-mindmap-mode#readme",
   "devDependencies": {
     "@types/node": "^24.3.0",
     "builtin-modules": "^5.3.0",

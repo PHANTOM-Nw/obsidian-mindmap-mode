@@ -2,9 +2,11 @@
 
 *[English](README.en.md)*
 
-把任意 Obsidian 笔记切换成可编辑的 XMind 式思维导图 —— 就像切到阅读模式一样。同一个标签页、同一个文件，**从不生成任何新文件**。
+把任意 Obsidian 笔记切换成可编辑的放射状思维导图 —— 就像切到阅读模式一样。同一个标签页、同一个文件，**从不生成任何新文件**。
 
 你在图上做的每一次修改，都会以最小的行级编辑写回原来的 `.md` 笔记。切回去，你的笔记还是你的笔记。
+
+画布的操作手感接近 XMind、MindNode 这类桌面思维导图工具，但数据自始至终就是你那份 markdown 笔记本身。
 
 ## 它做什么
 
@@ -125,4 +127,10 @@ src/main.ts    插件：视图注册、模式切换、命令
 
 ## 许可证
 
-MIT
+MIT — 见 [LICENSE](LICENSE)。Copyright (c) 2026 PHANTOM-Nw。
+
+本插件不打包任何第三方代码：没有运行时依赖，公式排版借用的是 Obsidian 自带的
+MathJax，图标走 Obsidian 的 `setIcon`，两者都不随插件分发。
+
+XMind、MindNode 是各自权利人的商标，本项目与它们没有任何关联，提及仅为描述操作
+方式。Obsidian 是 Dynalist Inc. 的商标。

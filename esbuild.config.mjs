@@ -3,7 +3,10 @@ import process from "node:process";
 import builtins from "builtin-modules";
 
 const banner = `/*
-This is a generated file. Source lives in src/ — see https://github.com/ for the repo.
+Mindmap Mode — https://github.com/PHANTOM-Nw/obsidian-mindmap-mode
+Copyright (c) 2026 PHANTOM-Nw. MIT licensed.
+
+This is a generated file. Source lives in src/.
 */
 `;
 

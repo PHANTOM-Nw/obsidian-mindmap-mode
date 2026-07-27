@@ -2,11 +2,14 @@
 
 *[中文说明](README.md)*
 
-Turn any Obsidian note into an editable, XMind-style mind map — the same way you
+Turn any Obsidian note into an editable, radial mind map — the same way you
 switch to reading mode. Same tab, same file, **no new files ever created**.
 
 Every edit you make on the map is written straight back into the original
 `.md` note as a minimal line edit. Toggle back and your note is still your note.
+
+The canvas handles much like a desktop mind-mapping tool such as XMind or
+MindNode, except the data never stops being your markdown note.
 
 ## What it does
 
@@ -179,4 +182,12 @@ TypeScript types natively — no build step, no test framework).
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 PHANTOM-Nw.
+
+No third-party code is bundled: there are no runtime dependencies, formulas are
+typeset by Obsidian's own MathJax, and icons come from Obsidian's `setIcon`.
+Neither is redistributed with the plugin.
+
+XMind and MindNode are trademarks of their respective owners; this project is
+not affiliated with either and mentions them only to describe how the canvas
+behaves. Obsidian is a trademark of Dynalist Inc.

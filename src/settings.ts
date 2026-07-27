@@ -134,7 +134,7 @@ export class MindmapSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Layout")
-			.setDesc("Balanced splits top-level branches to both sides, like XMind.")
+			.setDesc("Balanced splits top-level branches to both sides of the root.")
 			.addDropdown((d) =>
 				d
 					.addOption("balanced", "Balanced (both sides)")
