@@ -183,6 +183,19 @@ export class Canvas {
 		this.apply();
 	}
 
+	/**
+	 * Move the view so a content point lands on a given viewport point, leaving
+	 * the zoom alone.
+	 *
+	 * Written as an absolute placement rather than a relative nudge so it can be
+	 * applied twice with the same arguments without drifting.
+	 */
+	placeAt(x: number, y: number, screenX: number, screenY: number): void {
+		this.tx = screenX - x * this.scale;
+		this.ty = screenY - y * this.scale;
+		this.apply();
+	}
+
 	/** Pan the smallest amount that brings a content rect fully into view. */
 	reveal(x: number, y: number, width: number, height: number, margin = 40): void {
 		const rect = this.viewport.getBoundingClientRect();

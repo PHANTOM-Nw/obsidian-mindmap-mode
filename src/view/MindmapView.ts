@@ -46,8 +46,11 @@ const INITIAL_EXPAND_LEVEL = 1;
 const BODY_ID_MARK = "$body";
 
 /** Body cards show their block in full up to this much, then trail off. */
-const BODY_PREVIEW_CHARS = 600;
-const BODY_PREVIEW_LINES = 12;
+const BODY_PREVIEW_CHARS = 2000;
+const BODY_PREVIEW_LINES = 40;
+
+/** Note content gets more room than a topic title needs. */
+const BODY_WIDTH_FACTOR = 1.6;
 
 /**
  * What a body card shows. The full text stays one double-click away, so this
@@ -84,6 +87,19 @@ interface BodyRef {
 	index: number;
 }
 
+/**
+ * A node to hold still across a repaint, and the viewport point to hold it at.
+ *
+ * Folding re-runs the whole layout, and `normalize` re-origins every card on the
+ * new bounding box, so without this the entire map slides under the cursor even
+ * though the branch you clicked is where you left it.
+ */
+interface Anchor {
+	key: string;
+	screenX: number;
+	screenY: number;
+}
+
 export class MindmapView extends TextFileView implements MapController {
 	readonly canvas: Canvas;
 
@@ -98,6 +114,8 @@ export class MindmapView extends TextFileView implements MapController {
 	private foldSeedPending = false;
 	/** Body cards drawn by the last paint, keyed by their synthetic id. */
 	private bodyNodes = new Map<string, BodyRef>();
+	/** Consumed by the next paint. */
+	private anchor: Anchor | null = null;
 	private selectionKey: string | null = null;
 	private editingId: string | null = null;
 	private pendingFocus: PendingFocus | null = null;
@@ -330,8 +348,13 @@ export class MindmapView extends TextFileView implements MapController {
 	private foldFrom(depth: number): void {
 		this.collapsedKeys.clear();
 		if (!this.parsed || !Number.isFinite(depth)) return;
+		// childCount, not children.length: a section whose only content is
+		// paragraphs or callouts still has body cards to fold away.
+		const showBody = this.plugin.settings.showBodyNodes;
 		const visit = (node: MindNode, d: number): void => {
-			if (d >= depth && node.children.length > 0) this.collapsedKeys.add(node.key);
+			if (d >= depth && this.childCount(node, showBody) > 0) {
+				this.collapsedKeys.add(node.key);
+			}
 			for (const child of node.children) visit(child, d + 1);
 		};
 		visit(this.parsed.root, 0);
@@ -350,13 +373,38 @@ export class MindmapView extends TextFileView implements MapController {
 		}
 	}
 
+	/**
+	 * Note where a node currently sits on screen, so the next paint can put it
+	 * back there. Reads the layout the *previous* paint left behind.
+	 */
+	private markAnchor(key: string | undefined): void {
+		const layout = key ? this.layoutNodes.find((l) => l.node.key === key) : undefined;
+		if (!layout || !key) {
+			this.anchor = null;
+			return;
+		}
+		const canvas = this.canvas;
+		this.anchor = {
+			key,
+			screenX: canvas.tx + layout.x * canvas.scale,
+			screenY: canvas.ty + layout.y * canvas.scale,
+		};
+	}
+
+	/** Nothing was clicked, so hold the selection still, or the root. */
+	private markGlobalAnchor(): void {
+		this.markAnchor(this.selectedNode()?.key ?? this.parsed?.root.key);
+	}
+
 	expandAll(): void {
+		this.markGlobalAnchor();
 		this.foldFrom(Infinity);
 		this.paint();
 	}
 
 	/** Back to the view the map opens with. */
 	collapseAll(): void {
+		this.markGlobalAnchor();
 		this.foldFrom(INITIAL_EXPAND_LEVEL);
 		this.paint();
 	}
@@ -426,6 +474,21 @@ export class MindmapView extends TextFileView implements MapController {
 		return node.children.length + (showBody ? node.bodyRanges.length : 0);
 	}
 
+	/**
+	 * Leaves in a branch counted over the whole note, folded parts included.
+	 *
+	 * This is what the balanced layout splits on. Counting only what is on screen
+	 * would let a fold deep inside one branch shunt a different branch across to
+	 * the other side of the root.
+	 */
+	private branchWeight(node: MindNode, showBody: boolean): number {
+		const bodies = showBody ? node.bodyRanges.length : 0;
+		if (node.children.length === 0) return Math.max(1, bodies);
+		let total = bodies;
+		for (const child of node.children) total += this.branchWeight(child, showBody);
+		return total;
+	}
+
 	/** Everything a collapsed node is hiding, body cards included. */
 	private hiddenCount(node: MindNode, showBody: boolean): number {
 		let total = showBody ? node.bodyRanges.length : 0;
@@ -448,6 +511,8 @@ export class MindmapView extends TextFileView implements MapController {
 		// Invalidates any measurement callback still in flight from an earlier
 		// paint, so a slow MathJax flush cannot lay out a map that is now gone.
 		const token = ++this.paintToken;
+		const anchor = this.anchor;
+		this.anchor = null;
 
 		const s = this.plugin.settings;
 		this.canvas.content.empty();
@@ -472,14 +537,23 @@ export class MindmapView extends TextFileView implements MapController {
 		};
 		build(parsed.root, rootLayout);
 
+		// Fixed by the note, not by what happens to be unfolded, so the balanced
+		// layout keeps every branch on the side it started on.
+		for (const branch of rootLayout.children) {
+			branch.weight = this.branchWeight(branch.node, showBody);
+		}
+
 		let sawMath = false;
 		for (const layout of visible) {
 			const node = layout.node;
 			const collapsed = this.collapsedKeys.has(node.key);
+			const isBody = node.kind === "body";
 			const element = buildNodeElement(this.nodeLayer, layout, {
-				maxWidth: s.maxNodeWidth,
+				maxWidth: isBody
+					? Math.round(s.maxNodeWidth * BODY_WIDTH_FACTOR)
+					: s.maxNodeWidth,
 				branchColors: s.branchColors,
-				preformatted: node.kind === "body" && looksPreformatted(node.text),
+				preformatted: isBody && looksPreformatted(node.text),
 				collapsed,
 				hasChildren: this.childCount(node, showBody) > 0,
 				hiddenCount: collapsed ? this.hiddenCount(node, showBody) : 0,
@@ -489,7 +563,7 @@ export class MindmapView extends TextFileView implements MapController {
 		}
 
 		const wasFitting = this.needsFit;
-		this.measureAndPlace(rootLayout, visible);
+		this.measureAndPlace(rootLayout, visible, anchor);
 		if (!sawMath) return;
 
 		if (!mathSettled()) {
@@ -513,7 +587,7 @@ export class MindmapView extends TextFileView implements MapController {
 		void finishRenderMath().then(() => {
 			if (token !== this.paintToken) return;
 			if (wasFitting) this.needsFit = true;
-			this.measureAndPlace(rootLayout, visible);
+			this.measureAndPlace(rootLayout, visible, anchor);
 		});
 	}
 
@@ -524,7 +598,11 @@ export class MindmapView extends TextFileView implements MapController {
 	 * coordinates outright rather than accumulating them, and `renderEdges`
 	 * clears the layer before it draws.
 	 */
-	private measureAndPlace(rootLayout: LayoutNode, visible: LayoutNode[]): void {
+	private measureAndPlace(
+		rootLayout: LayoutNode,
+		visible: LayoutNode[],
+		anchor: Anchor | null,
+	): void {
 		const s = this.plugin.settings;
 
 		// One batched read pass: every write above, every measurement here.
@@ -563,9 +641,15 @@ export class MindmapView extends TextFileView implements MapController {
 
 		this.applySelection();
 		if (this.needsFit) {
+			// A first look at the map reframes it deliberately; holding a node
+			// still would fight that.
 			this.needsFit = false;
 			this.canvas.fit(result.width, result.height);
+			return;
 		}
+		if (!anchor) return;
+		const held = result.nodes.find((l) => l.node.key === anchor.key);
+		if (held) this.canvas.placeAt(held.x, held.y, anchor.screenX, anchor.screenY);
 	}
 
 	private applySelection(): void {
@@ -742,7 +826,10 @@ export class MindmapView extends TextFileView implements MapController {
 
 	toggleFold(id: string): void {
 		this.withNode(id, (_parsed, node) => {
-			if (node.children.length === 0) return;
+			// Has to agree with the `hasChildren` that decided whether to draw the
+			// toggle at all, or the button exists and does nothing.
+			if (this.childCount(node, this.plugin.settings.showBodyNodes) === 0) return;
+			this.markAnchor(node.key);
 			if (this.collapsedKeys.has(node.key)) this.collapsedKeys.delete(node.key);
 			else this.collapsedKeys.add(node.key);
 			this.paint();

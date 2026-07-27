@@ -10,6 +10,15 @@ export interface LayoutNode {
 	y: number;
 	depth: number;
 	side: Side;
+	/**
+	 * How much this subtree counts for when splitting the branches between the
+	 * two sides. 0 means "work it out from what is visible".
+	 *
+	 * The view sets it on the top-level branches from the *whole* tree, folded
+	 * parts included, so that folding something deep can never move a branch
+	 * from one side of the root to the other.
+	 */
+	weight: number;
 	/** Index of the top-level branch this node belongs to, for colouring. */
 	branch: number;
 	children: LayoutNode[];
@@ -42,6 +51,7 @@ export function createLayoutNode(
 		y: 0,
 		depth,
 		side: 1,
+		weight: 0,
 		branch: parent ? parent.branch : -1,
 		children: [],
 		parent,
@@ -123,11 +133,16 @@ function setSide(n: LayoutNode, side: Side): void {
 
 /**
  * Split top-level branches between the two sides at the point where half the
- * leaves have been used, which keeps reading order intact: down the right, then
+ * weight has been used, which keeps reading order intact: down the right, then
  * down the left.
+ *
+ * The weight comes from the caller when it has one, because counting visible
+ * leaves instead would make the split move every time something is folded --
+ * and a branch jumping from one side of the root to the other is the single
+ * most disorienting thing a fold can do.
  */
 function partition(children: LayoutNode[]): { right: LayoutNode[]; left: LayoutNode[] } {
-	const weights = children.map(leafCount);
+	const weights = children.map((child) => child.weight || leafCount(child));
 	const total = weights.reduce((a, b) => a + b, 0);
 	const half = total / 2;
 

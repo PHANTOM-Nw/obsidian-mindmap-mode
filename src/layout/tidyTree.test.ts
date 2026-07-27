@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createLayoutNode, layoutTree } from "./tidyTree.ts";
-import type { LayoutNode, LayoutOptions } from "./tidyTree.ts";
+import type { LayoutNode, LayoutOptions, Side } from "./tidyTree.ts";
 import type { MindNode } from "../model/types.ts";
 
 const OPTS: LayoutOptions = {
@@ -253,4 +253,44 @@ test("laying out the same tree twice gives the same result", () => {
 			before,
 		);
 	}
+});
+
+test("weight decides the split, so folding cannot move a branch across", () => {
+	// Four branches whose real sizes are 4, 1, 1, 1. Folding the heavy one makes
+	// every *visible* branch a leaf, which on leaf count alone would move the
+	// split from after the first branch to after the second -- branch 2 would
+	// jump from the left of the root to the right. Weights come from the whole
+	// note, so they pin the split either way.
+	const sidesFor = (unfolded: boolean, weighted: boolean): Side[] => {
+		const heavy = { children: [leaf(), leaf(), leaf(), leaf()] };
+		const root = build({
+			children: [unfolded ? heavy : leaf(), leaf(), leaf(), leaf()],
+		});
+		if (weighted) {
+			[4, 1, 1, 1].forEach((w, i) => {
+				root.children[i].weight = w;
+			});
+		}
+		layoutTree(root, OPTS);
+		return root.children.map((c) => c.side);
+	};
+
+	// The bug this guards against: without weights the sides really do change.
+	assert.notDeepEqual(sidesFor(true, false), sidesFor(false, false));
+
+	assert.deepEqual(sidesFor(true, true), [1, -1, -1, -1]);
+	assert.deepEqual(sidesFor(false, true), [1, -1, -1, -1]);
+});
+
+test("without a weight the split still falls back to the visible leaves", () => {
+	const root = build({
+		children: [{ children: [leaf(), leaf(), leaf(), leaf()] }, leaf(), leaf()],
+	});
+	layoutTree(root, OPTS);
+	// The heavy first branch alone reaches half the leaves, so it takes the
+	// right on its own and the two light ones go left.
+	assert.deepEqual(
+		root.children.map((c) => c.side),
+		[1, -1, -1],
+	);
 });
