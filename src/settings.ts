@@ -159,7 +159,7 @@ export class MindmapSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Show note content")
 			.setDesc(
-				"Paragraphs, code blocks and tables become their own cards, so they fold and unfold with the branch they belong to. Double-click one to edit it.",
+				"Paragraphs, code blocks and tables become their own cards, so they fold and unfold with the branch they belong to. Use the expand button on a card to see the whole block rendered, or double-click it to edit.",
 			)
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.showBodyNodes).onChange(async (value) => {

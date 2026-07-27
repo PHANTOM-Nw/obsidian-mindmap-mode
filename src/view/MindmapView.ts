@@ -26,6 +26,8 @@ import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
 import { attachInteractions } from "./interactions.ts";
+import { BlockDialog } from "./blockDialog.ts";
+import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
 import { ensureMath, finishRenderMath, mathAvailable, mathSettled } from "./math.ts";
 import type { Direction, MapController } from "./interactions.ts";
 import { resolveIndentUnit } from "../settings.ts";
@@ -53,8 +55,9 @@ const BODY_PREVIEW_LINES = 40;
 const BODY_WIDTH_FACTOR = 1.6;
 
 /**
- * What a body card shows. The full text stays one double-click away, so this
- * only has to stop a 300-line code block from becoming a 300-line card.
+ * What a body card shows. The full text stays one click away on the card's own
+ * expand button, so this only has to stop a 300-line code block from becoming a
+ * 300-line card.
  */
 function previewOf(text: string): string {
 	const lines = text.replace(/\s+$/, "").split("\n");
@@ -125,6 +128,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private detachInteractions: (() => void) | null = null;
 	private popover: HTMLElement | null = null;
+	private dialog: BlockDialog | null = null;
 	private needsFit = true;
 	private paintedEmpty = false;
 	private paintToken = 0;
@@ -190,6 +194,9 @@ export class MindmapView extends TextFileView implements MapController {
 		this.selectionKey = null;
 		this.paintToken++;
 		this.closePopover();
+		// The dialog holds line ranges from the file being cleared; leaving it up
+		// would let a save splice ranges that no longer mean anything.
+		this.closeDialog();
 	}
 
 	override async onOpen(): Promise<void> {
@@ -210,6 +217,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.detachInteractions?.();
 		this.detachInteractions = null;
 		this.closePopover();
+		this.closeDialog();
 		this.canvas.destroy();
 	}
 
@@ -271,6 +279,7 @@ export class MindmapView extends TextFileView implements MapController {
 	private showShortcuts(): void {
 		const rows: Array<[string, string]> = [
 			["Double-click / F2", "Edit the node"],
+			["⤢ on a content card", "Show the whole block, rendered"],
 			["Enter", "New sibling"],
 			["Tab", "New child"],
 			["Shift+Tab", "Outdent"],
@@ -554,6 +563,7 @@ export class MindmapView extends TextFileView implements MapController {
 					: s.maxNodeWidth,
 				branchColors: s.branchColors,
 				preformatted: isBody && looksPreformatted(node.text),
+				expandable: isBody,
 				collapsed,
 				hasChildren: this.childCount(node, showBody) > 0,
 				hiddenCount: collapsed ? this.hiddenCount(node, showBody) : 0,
@@ -949,7 +959,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.canvas.reveal(layout.x, layout.y, layout.width, layout.height);
 	}
 
-	// --- body popover ---------------------------------------------------------
+	// --- popovers -------------------------------------------------------------
 
 	private openPopover(): HTMLElement {
 		this.closePopover();
@@ -981,82 +991,89 @@ export class MindmapView extends TextFileView implements MapController {
 		this.popover = null;
 	}
 
-	openBody(id: string): void {
+	// --- the block dialog -----------------------------------------------------
+
+	expandBody(id: string): void {
+		this.openBody(id, "read");
+	}
+
+	/**
+	 * Show a node's note content whole.
+	 *
+	 * The card only ever holds `previewOf`'s clipped text; the dialog is handed
+	 * `bodyRangeText`, which is the block's exact source, so "expand" really does
+	 * mean the whole block.
+	 */
+	openBody(id: string, mode: BlockDialogMode = "edit"): void {
 		const parsed = this.parsed;
 		if (!parsed) return;
 
-		// A body card edits its own block; anything else edits all of its blocks.
+		// A body card shows its own block; anything else shows all of its blocks.
 		const ref = this.bodyNodes.get(id);
 		const node = ref ? parsed.byKey.get(ref.ownerKey) : parsed.byId.get(id);
 		if (!node || node.bodyRanges.length === 0) return;
 		const only = ref?.index;
 		if (only !== undefined && !node.bodyRanges[only]) return;
 
-		const panel = this.openPopover();
-		panel.addClass("mm-body-popover");
-		panel.createEl("h4", { text: node.text || "Note content" });
-		panel.createEl("p", {
-			cls: "mm-popover-hint",
-			text: "This content stays in the note exactly where it is. Editing here rewrites only these lines.",
-		});
-
-		const areas: Array<{ index: number; original: string; el: HTMLTextAreaElement }> = [];
+		const blocks: DialogBlock[] = [];
 		node.bodyRanges.forEach((range, index) => {
 			if (only !== undefined && index !== only) return;
-			const original = bodyRangeText(parsed, range);
-			const wrapper = panel.createDiv({ cls: "mm-body-block" });
-			wrapper.createDiv({
-				cls: "mm-body-lines",
-				text: `Lines ${range[0] + 1}–${range[1] + 1}`,
-			});
-			const area = wrapper.createEl("textarea", { cls: "mm-body-input" });
-			area.value = original;
-			area.rows = Math.min(16, original.split("\n").length + 1);
-			areas.push({ index, original, el: area });
+			blocks.push({ index, range, text: bodyRangeText(parsed, range) });
 		});
+		if (blocks.length === 0) return;
 
-		const actions = panel.createDiv({ cls: "mm-popover-actions" });
-		actions
-			.createEl("button", { text: "Cancel" })
-			.addEventListener("click", () => this.closePopover());
+		// Only one panel at a time: a dialog opened over the shortcuts popover
+		// would leave it stranded behind the modal's own backdrop.
+		this.closePopover();
+		this.closeDialog();
 
-		const save = actions.createEl("button", { cls: "mod-cta", text: "Save" });
-		save.addEventListener("click", () => {
-			const changed = areas
-				.filter((a) => a.el.value !== a.original)
-				// Highest index first so the earlier ranges' line numbers stay valid.
-				.sort((a, b) => b.index - a.index);
-			this.closePopover();
-			if (changed.length === 0) return;
-
-			const before = this.data;
-			let text = this.data;
-			for (const edit of changed) {
-				const snapshot = parseMarkdown(text, this.parseOptions());
-				const current = snapshot.byKey.get(node.key);
-				if (!current) break;
-				const result = replaceBodyRange(snapshot, current, edit.index, edit.el.value);
-				if (!result.ok) break;
-				text = result.text;
-			}
-			if (text === before) return;
-
-			this.undoStack.push(before);
-			if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
-			this.redoStack = [];
-			this.commit(text, -1, false);
+		const key = node.key;
+		this.dialog = new BlockDialog(this.app, {
+			title: node.text || "Note content",
+			sourcePath: this.file?.path ?? "",
+			blocks,
+			mode,
+			onSave: (edits) => this.saveBody(key, edits),
+			onClosed: () => {
+				this.dialog = null;
+				this.canvas.viewport.focus({ preventScroll: true });
+			},
 		});
+		this.dialog.open();
+	}
 
-		const anchor = this.elements.get(id)?.card;
-		const host = this.contentEl.getBoundingClientRect();
-		if (anchor) {
-			const rect = anchor.getBoundingClientRect();
-			panel.style.left = `${Math.max(8, Math.min(rect.left - host.left, host.width - 380))}px`;
-			panel.style.top = `${Math.min(rect.bottom - host.top + 8, host.height - 120)}px`;
-		} else {
-			panel.style.left = "50%";
-			panel.style.top = "20%";
+	private closeDialog(): void {
+		const dialog = this.dialog;
+		this.dialog = null;
+		dialog?.close();
+	}
+
+	/**
+	 * Write edited blocks back, one splice each.
+	 *
+	 * Re-parsing between edits is what keeps this correct: every splice can move
+	 * the lines under the ranges that follow it, and the node is re-found by key
+	 * rather than held across the change.
+	 */
+	private saveBody(key: string, edits: Array<{ index: number; text: string }>): void {
+		const before = this.data;
+		let text = this.data;
+
+		// Highest index first so the earlier ranges' line numbers stay valid.
+		for (const edit of [...edits].sort((a, b) => b.index - a.index)) {
+			const snapshot = parseMarkdown(text, this.parseOptions());
+			const current = snapshot.byKey.get(key);
+			if (!current) break;
+			const result = replaceBodyRange(snapshot, current, edit.index, edit.text);
+			if (!result.ok) break;
+			text = result.text;
 		}
+		if (text === before) return;
+
+		this.undoStack.push(before);
+		if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
+		this.redoStack = [];
+		this.commit(text, -1, false);
 	}
 
 	// --- file lifecycle -------------------------------------------------------

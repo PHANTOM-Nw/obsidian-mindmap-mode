@@ -17,6 +17,8 @@ export interface MapController {
 	outdent(id: string): void;
 	toggleFold(id: string): void;
 	toggleCheck(id: string): void;
+	/** Open a note-content block whole, rendered, in its own dialog. */
+	expandBody(id: string): void;
 	navigate(direction: Direction): void;
 
 	canDrop(id: string, targetId: string): boolean;
@@ -64,6 +66,15 @@ export function attachInteractions(controller: MapController): () => void {
 		}
 		const target = ev.target as HTMLElement;
 
+		// Ahead of the fallback below: the expand button sits inside the card,
+		// so letting the click through would also drop the selection.
+		const expand = target.closest<HTMLElement>(".mm-expand");
+		if (expand) {
+			const id = nodeIdFrom(expand);
+			if (id) controller.expandBody(id);
+			ev.stopPropagation();
+			return;
+		}
 		const toggle = target.closest<HTMLElement>(".mm-toggle");
 		if (toggle) {
 			const id = nodeIdFrom(toggle);
@@ -84,7 +95,9 @@ export function attachInteractions(controller: MapController): () => void {
 	});
 
 	on(viewport, "dblclick", (ev) => {
-		const id = nodeIdFrom(ev.target);
+		const target = ev.target as HTMLElement;
+		if (target.closest(".mm-expand")) return;
+		const id = nodeIdFrom(target);
 		if (!id) return;
 		ev.preventDefault();
 		controller.beginEdit(id);

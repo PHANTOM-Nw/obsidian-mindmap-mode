@@ -328,18 +328,56 @@
 	border: 1px solid var(--background-modifier-border);
 	border-left: 3px solid color-mix(in srgb, var(--mm-branch) 60%, transparent);
 	border-radius: 4px;
-	padding: 6px 10px;
+	/* The right side reserves the corner the expand button sits in, so the
+	   button never lands on top of the first line of content. */
+	padding: 6px 26px 6px 10px;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	line-height: 1.5;
 	cursor: text;
 	/* Note content is there to be read and copied, unlike a topic card. */
 	user-select: text;
+	/* Containing block for `.mm-expand`. */
+	position: relative;
 }
 
 .mm-node[data-kind="body"] .mm-card:hover {
 	background: var(--background-modifier-hover);
 	border-left-color: var(--mm-branch);
+}
+
+/* Opens the block whole, in the dialog. Absolutely positioned so it stays out
+   of flow: the view measures these cards with offsetWidth/offsetHeight, and a
+   button in the flow would push the layout around. */
+.mm-expand {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 4px;
+	color: var(--text-faint);
+	cursor: pointer;
+	opacity: 0.5;
+	user-select: none;
+}
+
+.mm-expand .svg-icon {
+	width: 12px;
+	height: 12px;
+}
+
+.mm-card:hover .mm-expand {
+	opacity: 1;
+}
+
+.mm-expand:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+	opacity: 1;
 }
 
 /* Code and tables only: prose keeps the reading face. */
@@ -451,6 +489,60 @@
 	font-size: var(--font-ui-smaller);
 }
 
+.mm-popover-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+/* --- the block dialog ----------------------------------------------------- */
+
+/* A modal, not a popover: `.mindmap-mode` is `overflow: hidden`, so a panel big
+   enough to read a long block would be clipped by the viewport it hangs in.
+   It also mounts outside `.mindmap-mode`, which is why none of the map's own
+   scoped rules -- the `.mm-text .mm-math` display override in particular --
+   reach the rendered markdown in here. */
+.mm-block-dialog {
+	width: min(760px, 90vw);
+	max-height: 85vh;
+}
+
+.mm-dialog-hint {
+	margin: 0 0 10px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.mm-dialog-modes {
+	display: flex;
+	gap: 4px;
+	margin-bottom: 10px;
+}
+
+.mm-dialog-mode {
+	padding: 4px 12px;
+	font-size: var(--font-ui-smaller);
+	box-shadow: none;
+}
+
+.mm-dialog-mode.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.mm-dialog-body {
+	max-height: 60vh;
+	overflow: auto;
+}
+
+.mm-dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 12px;
+}
+
 .mm-body-block {
 	margin-bottom: 10px;
 }
@@ -470,11 +562,14 @@
 	white-space: pre;
 }
 
-.mm-popover-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 4px;
+/* Obsidian's own reading-view CSS does the work; this only keeps the block from
+   inheriting the dialog's own margins at its edges. */
+.mm-body-render > :first-child {
+	margin-top: 0;
+}
+
+.mm-body-render > :last-child {
+	margin-bottom: 0;
 }
 
 .mm-shortcuts table {

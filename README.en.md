@@ -48,6 +48,7 @@ reading.
 | Input | Action |
 | --- | --- |
 | Double-click / `F2` | Edit the node text inline |
+| **⤢** on a content card | Show the whole block, rendered |
 | `Enter` | New sibling |
 | `Tab` | New child |
 | `Shift`+`Tab` | Outdent |
@@ -78,10 +79,15 @@ it belongs to, interleaved with its siblings in file order. Code blocks and
 tables keep a monospace face and their own line breaks; prose is set in the
 reading face, formulas included.
 
-Double-click one to edit that block in a popover, rewriting only those lines.
-They cannot be renamed, dragged or deleted — those lines belong to the note, and
-the map is only showing them. Long blocks are clipped on the card; double-click
-to see the whole thing.
+A card is only a preview: long blocks are clipped on the map, and the map's own
+renderer is a small inline one. The **⤢** button in a content card's corner opens
+the block whole, rendered by Obsidian itself — display formulas, tables, code
+highlighting and callouts all look the way they do in reading view. Switch that
+dialog to **Source** (or double-click the card) to edit the block; saving
+rewrites only those lines.
+
+Content cards cannot be renamed, dragged or deleted — those lines belong to the
+note, and the map is only showing them.
 
 Turn **Show note content** off in the settings to keep them off the map.
 

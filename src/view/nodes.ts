@@ -1,3 +1,5 @@
+import { setIcon } from "obsidian";
+
 import type { LayoutNode } from "../layout/tidyTree.ts";
 import { renderMathInto } from "./math.ts";
 import { MATH_DISPLAY, MATH_INLINE } from "./mathSyntax.ts";
@@ -115,6 +117,8 @@ export interface NodeElementOptions {
 	branchColors: boolean;
 	/** Render the text verbatim: code blocks and tables must not be marked up. */
 	preformatted: boolean;
+	/** Draw the button that opens the block whole, in its own dialog. */
+	expandable: boolean;
 	collapsed: boolean;
 	/** True when the node has anything to unfold, body cards included. */
 	hasChildren: boolean;
@@ -128,6 +132,7 @@ export interface NodeElement {
 	text: HTMLElement;
 	toggle: HTMLElement | null;
 	checkbox: HTMLElement | null;
+	expand: HTMLElement | null;
 	hasMath: boolean;
 }
 
@@ -168,6 +173,22 @@ export function buildNodeElement(
 		hasMath = renderInline(text, node.text);
 	}
 
+	// Inside the card, not beside it. `canPan` already lets a pointerdown on
+	// `.mm-card` through, and anything outside it would have to be named there
+	// too or the canvas takes pointer capture and swallows the click.
+	// Absolutely positioned, so it stays out of flow and cannot move the
+	// measurements `measureAndPlace` takes off this element.
+	let expand: HTMLElement | null = null;
+	if (opts.expandable) {
+		expand = card.createDiv({ cls: "mm-expand" });
+		expand.setAttribute("role", "button");
+		expand.setAttribute("aria-label", "Show the whole block");
+		setIcon(expand, "maximize-2");
+		// `setIcon` is silent when the id is not in the bundled set, which would
+		// leave an invisible but clickable box in the corner of every card.
+		if (!expand.firstElementChild) expand.setText("⤢");
+	}
+
 	let toggle: HTMLElement | null = null;
 	if (opts.hasChildren) {
 		toggle = el.createDiv({ cls: "mm-toggle" });
@@ -181,5 +202,5 @@ export function buildNodeElement(
 		}
 	}
 
-	return { el, card, text, toggle, checkbox, hasMath };
+	return { el, card, text, toggle, checkbox, expand, hasMath };
 }
