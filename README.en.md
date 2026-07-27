@@ -23,8 +23,8 @@ MindNode, except the data never stops being your markdown note.
   one more level, not the whole subtree.
 - **Formulas render.** `$\lambda$` and `$$\sum_{i=1}^{n} x_i$$` are typeset with
   Obsidian's own MathJax. Prices like `$5 and $10` are left as prices.
-- **Edit on the canvas.** Rename, add, delete, indent, drag to reparent, fold,
-  tick checkboxes — all of it rewrites the note in place.
+- **Edit on the canvas.** Rename, add, delete, indent, drag to reparent, drag to
+  reorder, fold, tick checkboxes — all of it rewrites the note in place.
 - **Nothing else is touched.** Frontmatter, fenced code, tables, HTML and links
   are never reformatted. Lines you did not edit come back byte-for-byte
   identical, including CRLF endings.
@@ -49,6 +49,9 @@ reading.
 | --- | --- |
 | Double-click / `F2` | Edit the node text inline |
 | **⤢** on a content card | Show the whole block, rendered |
+| Click a link in a content card | Open it — note, heading, PDF, attachment or web address |
+| **+** beside a card | New child |
+| Right-click a card | The node's menu: add a child, add a sibling above or below, fold, rename, delete |
 | `Enter` | New sibling |
 | `Tab` | New child |
 | `Shift`+`Tab` | Outdent |
@@ -57,6 +60,7 @@ reading.
 | `Space` | Fold / unfold |
 | Arrow keys | Move the selection |
 | Drag a card onto another | Reparent it |
+| Drag onto a card's top / bottom edge | Drop it in beside that card, above or below |
 | `Ctrl`/`Cmd`+`Enter` | Cycle the checkbox: none → `[ ]` → `[x]` → none |
 | `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
 | `Ctrl`/`Cmd`+`0` | Fit the map to the window |
@@ -69,7 +73,15 @@ everything behind the root.
 Dragging across the heading/list boundary converts the moved block for you. Drop
 a heading onto a bullet and the whole subtree becomes nested bullets; drop a
 bullet onto a heading and it becomes a top-level list. Checkbox state survives
-the round trip.
+the round trip. Dropping *beside* a node works the same way: the block is
+written the way that node is written, because a bullet placed after a heading is
+that heading's content rather than its sibling.
+
+Top-level branches are not reordered by dragging. The layout splits them between
+the two sides of the root by weight, so their order is its to decide — a drop
+anywhere on a top-level card reparents, as it always has. From the second level
+down, siblings run top to bottom in file order, and the edge of a card is where
+you change it.
 
 ### Paragraphs, code blocks and tables
 

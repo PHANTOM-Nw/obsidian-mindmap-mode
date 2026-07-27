@@ -194,6 +194,16 @@
 	background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
 }
 
+/* Dropped beside a card rather than into it: a line marks where it lands. The
+   whole-box highlight above means "inside this one", these mean "next to it". */
+.mm-node.is-drop-before .mm-card {
+	box-shadow: 0 -3px 0 var(--interactive-accent);
+}
+
+.mm-node.is-drop-after .mm-card {
+	box-shadow: 0 3px 0 var(--interactive-accent);
+}
+
 .mm-node.is-drop-invalid .mm-card {
 	box-shadow: 0 0 0 2px var(--text-error);
 	cursor: not-allowed;
@@ -233,6 +243,18 @@
 	color: var(--link-color);
 	text-decoration: underline;
 	text-decoration-style: dotted;
+}
+
+/* Only in note content. A title is something you select and drag, so its links
+   stay text; the view wires the click for these alone. */
+.mm-node[data-kind="body"] .mm-link[data-href],
+.mm-node[data-kind="body"] .mm-embed[data-href] {
+	cursor: pointer;
+}
+
+.mm-node[data-kind="body"] .mm-link[data-href]:hover {
+	color: var(--link-color-hover, var(--link-color));
+	text-decoration-style: solid;
 }
 
 .mm-text .mm-embed {
@@ -387,14 +409,56 @@
 	tab-size: 4;
 }
 
-/* --- fold toggle --------------------------------------------------------- */
+/* --- the card's branch-side furniture ------------------------------------ */
 
-.mm-toggle {
+/* The fold toggle and the add button, in one row on the side the branch grows
+   from. A row rather than two placements: whatever width a three-digit count
+   gives the toggle, the button is simply next to it.
+
+   Flush against the card on purpose. The add button only appears while the node
+   is hovered, and a gap here would be a strip where nothing is hovered -- the
+   button would switch itself off under the pointer sent to press it.
+
+   Absolutely positioned, like everything else outside the card: the view sizes
+   cards with offsetWidth, and a row in the flow would widen every one of them. */
+.mm-tools {
 	position: absolute;
 	top: 50%;
 	display: flex;
 	align-items: center;
+	gap: 4px;
+	height: 20px;
+	transform: translateY(-50%);
+	/* Solid only while the row has something to press, so a leaf's empty slot
+	   is not a strip of canvas that cannot be panned. Turning solid the moment
+	   the card is hovered is what makes the row a continuous bridge out to the
+	   add button. */
+	pointer-events: none;
+}
+
+.mm-node:hover .mm-tools,
+.mm-node.is-selected .mm-tools {
+	pointer-events: auto;
+}
+
+.mm-node[data-side="right"] .mm-tools {
+	left: 100%;
+	padding-left: 9px;
+}
+
+/* Mirrored: the toggle stays nearest the card, the button beyond it. */
+.mm-node[data-side="left"] .mm-tools {
+	right: 100%;
+	padding-right: 9px;
+	flex-direction: row-reverse;
+}
+
+.mm-toggle {
+	display: flex;
+	align-items: center;
 	justify-content: center;
+	/* The row is only solid on hover; folding has to work without one. */
+	pointer-events: auto;
 	min-width: 16px;
 	height: 16px;
 	padding: 0 3px;
@@ -405,17 +469,6 @@
 	font-size: 9px;
 	line-height: 1;
 	cursor: pointer;
-	transform: translateY(-50%);
-}
-
-.mm-node[data-side="right"] .mm-toggle {
-	right: -9px;
-	transform: translate(100%, -50%);
-}
-
-.mm-node[data-side="left"] .mm-toggle {
-	left: -9px;
-	transform: translate(-100%, -50%);
 }
 
 .mm-toggle:hover {
@@ -430,6 +483,45 @@
 	height: 1.5px;
 	background: currentColor;
 	border-radius: 1px;
+}
+
+/* Grows a child from the card itself. Kept out of reach until the node is
+   hovered or selected: an invisible button that still took clicks would swallow
+   them from the canvas beside every card. It holds its place in the row either
+   way, so nothing shifts when it appears. */
+.mm-add {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 999px;
+	border: 1px dashed color-mix(in srgb, var(--mm-branch, var(--interactive-accent)) 65%, transparent);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+}
+
+.mm-add .svg-icon {
+	width: 12px;
+	height: 12px;
+}
+
+.mm-node:hover .mm-add,
+.mm-node.is-selected .mm-add {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.mm-add:hover {
+	border-style: solid;
+	background: var(--mm-branch, var(--interactive-accent));
+	color: var(--text-on-accent);
 }
 
 /* --- toolbar ------------------------------------------------------------- */

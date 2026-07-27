@@ -137,6 +137,31 @@ export function addSibling(
 	return done(doc, insertAt + offset);
 }
 
+/**
+ * A sibling directly above `node`, rather than below it.
+ *
+ * The marker is taken as-is: `nextOrderedMarker` is for appending after a
+ * numbered item, and inserting above one wants that item's own number.
+ */
+export function addSiblingBefore(
+	parsed: ParsedDoc,
+	node: MindNode,
+	text = "",
+): Mutation {
+	if (!node.parent || node.lineStart < 0) return unchanged(parsed);
+	const spec = specOf(node);
+
+	const insertAt = Math.max(node.lineStart, parsed.bodyStart);
+	const { block, offset } = padBlock(
+		parsed.doc.lines,
+		insertAt,
+		[renderNew(spec, text)],
+		spec.kind === "heading",
+	);
+	const doc = spliceLines(parsed.doc, insertAt, 0, block);
+	return done(doc, insertAt + offset);
+}
+
 export function deleteNode(parsed: ParsedDoc, node: MindNode): Mutation {
 	if (!node.parent || node.lineStart < 0) return unchanged(parsed);
 	const count = node.blockEnd - node.lineStart + 1;
@@ -166,33 +191,32 @@ export function canMove(node: MindNode, newParent: MindNode): boolean {
 }
 
 /**
- * Move a subtree under `newParent`, rewriting its markers for the new depth.
+ * Move a subtree under `newParent`, landing directly after line `anchorLine`.
  *
- * `after` places the block directly following that node instead of appending it
- * as the last child, which is what outdenting needs.
+ * Callers differ in which line they anchor to -- the parent's last line (append
+ * as the last child), a sibling's last line (drop below it), the line above a
+ * sibling (drop above it) -- and in `kind`, the shape the block takes when it
+ * lands.
  */
-export function moveNode(
+function moveWithAnchor(
 	parsed: ParsedDoc,
 	node: MindNode,
 	newParent: MindNode,
-	after?: MindNode,
+	anchorLine: number,
+	kind: "heading" | "listitem",
 ): Mutation {
 	if (!canMove(node, newParent)) return unchanged(parsed);
 
-	const rootSpec = childSpecFor(
-		newParent,
-		parsed.indentUnit,
-		isHeadingLike(node) ? "heading" : "listitem",
-	);
+	const rootSpec = childSpecFor(newParent, parsed.indentUnit, kind);
 	const block = relevelBlock(parsed, node, rootSpec, parsed.indentUnit);
 
 	const removeStart = node.lineStart;
 	const removeCount = node.blockEnd - node.lineStart + 1;
 
-	// Insert directly after this original line. If that anchor sits inside the
-	// block we are lifting out (it does when the target is our own ancestor and
-	// we are its last content), fall back to the hole we just made.
-	let anchor = after ? after.blockEnd : newParent.blockEnd;
+	// If the anchor sits inside the block we are lifting out (it does when the
+	// target is our own ancestor and we are its last content), fall back to the
+	// hole we just made.
+	let anchor = anchorLine;
 	if (anchor >= removeStart && anchor <= node.blockEnd) anchor = removeStart - 1;
 
 	const removed = spliceLines(parsed.doc, removeStart, removeCount, []);
@@ -212,6 +236,82 @@ export function moveNode(
 	);
 	doc = spliceLines(doc, insertAt, 0, padded);
 	return done(doc, insertAt + offset);
+}
+
+/**
+ * Move a subtree under `newParent`, rewriting its markers for the new depth.
+ *
+ * `after` places the block directly following that node instead of appending it
+ * as the last child, which is what outdenting needs.
+ */
+export function moveNode(
+	parsed: ParsedDoc,
+	node: MindNode,
+	newParent: MindNode,
+	after?: MindNode,
+): Mutation {
+	if (!canMove(node, newParent)) return unchanged(parsed);
+	return moveWithAnchor(
+		parsed,
+		node,
+		newParent,
+		(after ?? newParent).blockEnd,
+		isHeadingLike(node) ? "heading" : "listitem",
+	);
+}
+
+/**
+ * Whether `node` may be dropped beside `target` as one of its siblings.
+ *
+ * First-level branches are excluded on purpose: the layout splits them between
+ * the two sides of the root by weight, so their order is the layout's to decide
+ * and dragging one above another would say nothing about where it lands.
+ */
+export function canReorder(node: MindNode, target: MindNode): boolean {
+	const parent = target.parent;
+	// No parent: the root. No grandparent: a first-level branch.
+	if (!parent || !parent.parent) return false;
+	if (target.virtual || target.lineStart < 0) return false;
+	if (node === target) return false;
+	return canMove(node, parent);
+}
+
+/**
+ * The shape a node has to take to be read as `target`'s sibling.
+ *
+ * It is the *target's* kind, not the moved node's: a list item written after a
+ * heading is that heading's content, not its sibling, and a heading written
+ * among list items swallows the ones below it. Landing beside something means
+ * being written the way it is written.
+ */
+function siblingKind(target: MindNode): "heading" | "listitem" {
+	return isHeadingLike(target) ? "heading" : "listitem";
+}
+
+/** Drop `node` in as `target`'s sibling, directly above it. */
+export function moveBefore(
+	parsed: ParsedDoc,
+	node: MindNode,
+	target: MindNode,
+): Mutation {
+	if (!canReorder(node, target) || !target.parent) return unchanged(parsed);
+	return moveWithAnchor(
+		parsed,
+		node,
+		target.parent,
+		target.lineStart - 1,
+		siblingKind(target),
+	);
+}
+
+/** Drop `node` in as `target`'s sibling, after the whole of `target`'s subtree. */
+export function moveAfter(
+	parsed: ParsedDoc,
+	node: MindNode,
+	target: MindNode,
+): Mutation {
+	if (!canReorder(node, target) || !target.parent) return unchanged(parsed);
+	return moveWithAnchor(parsed, node, target.parent, target.blockEnd, siblingKind(target));
 }
 
 export function indentNode(parsed: ParsedDoc, node: MindNode): Mutation {

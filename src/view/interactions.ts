@@ -2,6 +2,12 @@ import type { Canvas } from "./canvas.ts";
 
 export type Direction = "up" | "down" | "left" | "right";
 
+/**
+ * Where a dragged node lands relative to the card it was dropped on: inside it
+ * as a child, or beside it as a sibling above or below.
+ */
+export type DropMode = "child" | "before" | "after";
+
 /** Everything the interaction layer needs from the view. */
 export interface MapController {
 	canvas: Canvas;
@@ -19,10 +25,14 @@ export interface MapController {
 	toggleCheck(id: string): void;
 	/** Open a note-content block whole, rendered, in its own dialog. */
 	expandBody(id: string): void;
+	/** Follow a link written in a note-content card. */
+	openLink(href: string, ev: MouseEvent): void;
+	/** The node's own menu, at the pointer. */
+	showMenu(id: string, ev: MouseEvent): void;
 	navigate(direction: Direction): void;
 
-	canDrop(id: string, targetId: string): boolean;
-	move(id: string, targetId: string): void;
+	canDrop(id: string, targetId: string, mode: DropMode): boolean;
+	move(id: string, targetId: string, mode: DropMode): void;
 
 	undo(): void;
 	redo(): void;
@@ -66,12 +76,30 @@ export function attachInteractions(controller: MapController): () => void {
 		}
 		const target = ev.target as HTMLElement;
 
+		// Links, but only in note content: a title is something you select and
+		// drag, and a link filling one would leave no way to grab the node.
+		const link = target.closest<HTMLElement>(".mm-link[data-href], .mm-embed[data-href]");
+		if (link?.closest('.mm-node[data-kind="body"]')) {
+			const href = link.dataset.href;
+			if (href) controller.openLink(href, ev);
+			ev.preventDefault();
+			ev.stopPropagation();
+			return;
+		}
+
 		// Ahead of the fallback below: the expand button sits inside the card,
 		// so letting the click through would also drop the selection.
 		const expand = target.closest<HTMLElement>(".mm-expand");
 		if (expand) {
 			const id = nodeIdFrom(expand);
 			if (id) controller.expandBody(id);
+			ev.stopPropagation();
+			return;
+		}
+		const add = target.closest<HTMLElement>(".mm-add");
+		if (add) {
+			const id = nodeIdFrom(add);
+			if (id) controller.addChildTo(id);
 			ev.stopPropagation();
 			return;
 		}
@@ -103,16 +131,55 @@ export function attachInteractions(controller: MapController): () => void {
 		controller.beginEdit(id);
 	});
 
-	// --- dragging to reparent -------------------------------------------------
+	// --- dragging to reparent or reorder ---------------------------------------
 	let dragId: string | null = null;
 	let dragPointer = -1;
 	let origin = { x: 0, y: 0 };
 	let dragging = false;
 	let hovered: HTMLElement | null = null;
+	let hoveredMode: DropMode = "child";
+
+	const DROP_CLASSES = [
+		"is-drop-target",
+		"is-drop-before",
+		"is-drop-after",
+		"is-drop-invalid",
+	];
 
 	const clearHover = (): void => {
-		hovered?.removeClasses(["is-drop-target", "is-drop-invalid"]);
+		hovered?.removeClasses(DROP_CLASSES);
 		hovered = null;
+	};
+
+	/**
+	 * Which third of the card the pointer is over.
+	 *
+	 * A rect is the right tool here -- this is hit-testing in screen space, where
+	 * the pointer already lives, not measuring a card for layout.
+	 */
+	const zoneOf = (el: HTMLElement, clientY: number): DropMode => {
+		const rect = el.getBoundingClientRect();
+		const edge = Math.min(rect.height * 0.3, 14);
+		if (clientY < rect.top + edge) return "before";
+		if (clientY > rect.bottom - edge) return "after";
+		return "child";
+	};
+
+	/**
+	 * The zone under the pointer, falling back to "child" where reordering is
+	 * refused. That fallback is what keeps a first-level card behaving exactly as
+	 * it always has over its whole surface, rather than growing a silent dead
+	 * band along each edge.
+	 */
+	const dropModeFor = (
+		id: string,
+		targetId: string,
+		el: HTMLElement,
+		clientY: number,
+	): DropMode => {
+		const zone = zoneOf(el, clientY);
+		if (zone !== "child" && !controller.canDrop(id, targetId, zone)) return "child";
+		return zone;
 	};
 
 	const endDrag = (): void => {
@@ -131,7 +198,7 @@ export function attachInteractions(controller: MapController): () => void {
 	on(viewport, "pointerdown", (ev) => {
 		if (ev.button !== 0 || controller.isEditing()) return;
 		const target = ev.target as HTMLElement;
-		if (target.closest(".mm-toggle, .mm-checkbox")) return;
+		if (target.closest(".mm-tools, .mm-checkbox")) return;
 		const card = target.closest<HTMLElement>(".mm-card");
 		// A body card stands for lines the note owns, not a node that can be
 		// reparented, so it never starts a drag.
@@ -164,16 +231,22 @@ export function attachInteractions(controller: MapController): () => void {
 		const targetEl =
 			under instanceof HTMLElement ? under.closest<HTMLElement>(".mm-node") : null;
 
-		if (targetEl === hovered) return;
+		const targetId = targetEl?.dataset.id;
+		const mode =
+			targetEl && targetId && targetId !== dragId
+				? dropModeFor(dragId, targetId, targetEl, ev.clientY)
+				: "child";
+		// The zone can change without the card changing, and the highlight has to
+		// follow the pointer across that boundary.
+		if (targetEl === hovered && mode === hoveredMode) return;
 		clearHover();
-		if (!targetEl) return;
+		if (!targetEl || !targetId || targetId === dragId) return;
 
-		const targetId = targetEl.dataset.id;
-		if (!targetId || targetId === dragId) return;
 		hovered = targetEl;
-		targetEl.addClass(
-			controller.canDrop(dragId, targetId) ? "is-drop-target" : "is-drop-invalid",
-		);
+		hoveredMode = mode;
+		if (!controller.canDrop(dragId, targetId, mode)) targetEl.addClass("is-drop-invalid");
+		else if (mode === "child") targetEl.addClass("is-drop-target");
+		else targetEl.addClass(mode === "before" ? "is-drop-before" : "is-drop-after");
 	});
 
 	const finishDrag = (ev: PointerEvent): void => {
@@ -184,17 +257,33 @@ export function attachInteractions(controller: MapController): () => void {
 			const targetEl =
 				under instanceof HTMLElement ? under.closest<HTMLElement>(".mm-node") : null;
 			const targetId = targetEl?.dataset.id;
-			if (targetId && controller.canDrop(dragId, targetId)) {
-				const source = dragId;
-				endDrag();
-				controller.move(source, targetId);
-				return;
+			if (targetEl && targetId && targetId !== dragId) {
+				const mode = dropModeFor(dragId, targetId, targetEl, ev.clientY);
+				if (controller.canDrop(dragId, targetId, mode)) {
+					const source = dragId;
+					endDrag();
+					controller.move(source, targetId, mode);
+					return;
+				}
 			}
 		}
 		endDrag();
 	};
 	on(viewport, "pointerup", finishDrag);
 	on(viewport, "pointercancel", () => endDrag());
+
+	// --- the node menu ---------------------------------------------------------
+	on(viewport, "contextmenu", (ev) => {
+		// A node being edited is a text field, and it keeps the platform's own
+		// menu -- cut, copy, paste, spelling.
+		if (controller.isEditing()) return;
+		const id = nodeIdFrom(ev.target);
+		// Blank canvas keeps the platform menu too; a card gets the map's own.
+		if (!id) return;
+		ev.preventDefault();
+		endDrag();
+		controller.showMenu(id, ev);
+	});
 
 	// --- keyboard -------------------------------------------------------------
 	on(viewport, "keydown", (ev) => {

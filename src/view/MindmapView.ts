@@ -1,16 +1,20 @@
-import { Notice, TextFileView, setIcon } from "obsidian";
-import type { Menu, TFile, WorkspaceLeaf } from "obsidian";
+import { Keymap, Menu, Notice, TextFileView, setIcon } from "obsidian";
+import type { TFile, WorkspaceLeaf } from "obsidian";
 
 import { parseMarkdown } from "../model/parse.ts";
 import type { MindNode, ParsedDoc } from "../model/types.ts";
 import {
 	addChild,
 	addSibling,
+	addSiblingBefore,
 	bodyRangeText,
 	canMove,
 	canRename,
+	canReorder,
 	deleteNode,
 	indentNode,
+	moveAfter,
+	moveBefore,
 	moveNode,
 	outdentNode,
 	renameNode,
@@ -29,7 +33,7 @@ import { attachInteractions } from "./interactions.ts";
 import { BlockDialog } from "./blockDialog.ts";
 import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
 import { ensureMath, finishRenderMath, mathAvailable, mathSettled } from "./math.ts";
-import type { Direction, MapController } from "./interactions.ts";
+import type { Direction, DropMode, MapController } from "./interactions.ts";
 import { resolveIndentUnit } from "../settings.ts";
 import type MindmapPlugin from "../main.ts";
 
@@ -141,11 +145,12 @@ export class MindmapView extends TextFileView implements MapController {
 		this.canvas = new Canvas(this.contentEl, {
 			wheel: plugin.settings.wheel,
 			// Only blank space starts a pan; everything a node owns belongs to the
-			// drag and click handlers. The fold toggle has to be named explicitly:
-			// it hangs off `.mm-node`, outside the card, and letting a pan start on
-			// it means the canvas takes pointer capture — after which Chromium
-			// retargets the click to the viewport and `toggleFold` never fires.
-			canPan: (target) => !target.closest(".mm-card, .mm-toggle"),
+			// drag and click handlers. `.mm-tools` — the toggle and add button —
+			// has to be named explicitly: it hangs off `.mm-node`, outside the
+			// card, and letting a pan start there means the canvas takes pointer
+			// capture, after which Chromium retargets the click to the viewport
+			// and the button never fires.
+			canPan: (target) => !target.closest(".mm-card, .mm-tools"),
 		});
 		this.canvas.viewport.tabIndex = 0;
 		this.buildToolbar();
@@ -280,6 +285,9 @@ export class MindmapView extends TextFileView implements MapController {
 		const rows: Array<[string, string]> = [
 			["Double-click / F2", "Edit the node"],
 			["⤢ on a content card", "Show the whole block, rendered"],
+			["Click a link in a content card", "Open it"],
+			["+ beside a card", "New child"],
+			["Right-click a card", "The node's menu"],
 			["Enter", "New sibling"],
 			["Tab", "New child"],
 			["Shift+Tab", "Outdent"],
@@ -287,7 +295,8 @@ export class MindmapView extends TextFileView implements MapController {
 			["Delete", "Delete node and its children"],
 			["Space", "Fold / unfold"],
 			["Arrow keys", "Move the selection"],
-			["Drag a card", "Reparent it"],
+			["Drag onto a card", "Reparent it"],
+			["Drag onto a card's top / bottom edge", "Reorder it beside that card"],
 			["Ctrl/Cmd+Enter", "Cycle the checkbox"],
 			["Ctrl/Cmd+Z", "Undo (Shift to redo)"],
 			["Ctrl/Cmd+0", "Fit to window"],
@@ -564,6 +573,7 @@ export class MindmapView extends TextFileView implements MapController {
 				branchColors: s.branchColors,
 				preformatted: isBody && looksPreformatted(node.text),
 				expandable: isBody,
+				addable: !isBody,
 				collapsed,
 				hasChildren: this.childCount(node, showBody) > 0,
 				hiddenCount: collapsed ? this.hiddenCount(node, showBody) : 0,
@@ -682,6 +692,9 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private apply(mutation: Mutation, edit = false): void {
 		if (!mutation.ok) return;
+		// A drop onto the position a node already holds rewrites it to exactly what
+		// it was. Nothing changed, so it earns neither an undo step nor a save.
+		if (mutation.text === this.data) return;
 		this.undoStack.push(this.data);
 		if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
 		this.redoStack = [];
@@ -812,6 +825,16 @@ export class MindmapView extends TextFileView implements MapController {
 		});
 	}
 
+	addSiblingBeforeTo(id: string): void {
+		this.withNode(id, (parsed, node) => {
+			if (!node.parent) {
+				this.addChildTo(id);
+				return;
+			}
+			this.apply(addSiblingBefore(parsed, node, ""), true);
+		});
+	}
+
 	removeNode(id: string): void {
 		this.withNode(id, (parsed, node) => {
 			if (!node.parent) {
@@ -846,20 +869,138 @@ export class MindmapView extends TextFileView implements MapController {
 		});
 	}
 
-	canDrop(id: string, targetId: string): boolean {
+	canDrop(id: string, targetId: string, mode: DropMode): boolean {
 		const node = this.parsed?.byId.get(id);
 		const target = this.parsed?.byId.get(targetId);
 		if (!node || !target) return false;
-		return canMove(node, target);
+		return mode === "child" ? canMove(node, target) : canReorder(node, target);
 	}
 
-	move(id: string, targetId: string): void {
+	move(id: string, targetId: string, mode: DropMode): void {
 		const parsed = this.parsed;
 		const node = parsed?.byId.get(id);
 		const target = parsed?.byId.get(targetId);
 		if (!parsed || !node || !target) return;
-		this.collapsedKeys.delete(target.key);
-		this.apply(moveNode(parsed, node, target));
+
+		if (mode === "child") {
+			this.collapsedKeys.delete(target.key);
+			this.apply(moveNode(parsed, node, target));
+			return;
+		}
+		// Dropped beside the target, so it is the target's parent that must be
+		// open for the node to be visible where it landed.
+		if (target.parent) this.collapsedKeys.delete(target.parent.key);
+		this.apply(
+			mode === "before"
+				? moveBefore(parsed, node, target)
+				: moveAfter(parsed, node, target),
+		);
+	}
+
+	/**
+	 * Follow a link written in a note-content card.
+	 *
+	 * Anything with a scheme is handed to the platform, but only from a short
+	 * list: the target came out of a note, and `javascript:` must never reach a
+	 * window. Everything else is a vault link -- a note, a heading, a PDF -- and
+	 * goes through the workspace so it opens the way Obsidian opens it anywhere
+	 * else.
+	 */
+	openLink(href: string, ev: MouseEvent): void {
+		const newLeaf = Keymap.isModEvent(ev);
+		if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+			if (/^(https?|obsidian|mailto):/i.test(href)) window.open(href, "_blank");
+			return;
+		}
+		// `[a](My%20File.pdf)` is the same file as `[[My File.pdf]]`; only the
+		// wikilink spelling arrives ready to resolve.
+		let path = href;
+		try {
+			path = decodeURIComponent(href);
+		} catch {
+			// A stray `%` is not an escape. Take the target as written.
+		}
+		void this.app.workspace.openLinkText(path, this.file?.path ?? "", newLeaf);
+	}
+
+	showMenu(id: string, ev: MouseEvent): void {
+		const menu = new Menu();
+
+		// A content card stands for lines the note owns: it can be read and
+		// edited, but never renamed, moved or given children.
+		if (this.bodyNodes.has(id)) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Show the whole block")
+					.setIcon("maximize-2")
+					.onClick(() => this.expandBody(id)),
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle("Edit the block source")
+					.setIcon("pencil")
+					.onClick(() => this.openBody(id, "edit")),
+			);
+			menu.showAtMouseEvent(ev);
+			return;
+		}
+
+		const node = this.parsed?.byId.get(id);
+		if (!node) return;
+		this.select(id);
+
+		menu.addItem((item) =>
+			item
+				.setTitle("Add child")
+				.setIcon("corner-down-right")
+				.onClick(() => this.addChildTo(id)),
+		);
+		if (node.parent) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Add sibling below")
+					.setIcon("plus")
+					.onClick(() => this.addSiblingTo(id)),
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle("Add sibling above")
+					.setIcon("plus")
+					.onClick(() => this.addSiblingBeforeTo(id)),
+			);
+		}
+
+		if (this.childCount(node, this.plugin.settings.showBodyNodes) > 0) {
+			menu.addSeparator();
+			menu.addItem((item) =>
+				item
+					.setTitle(this.collapsedKeys.has(node.key) ? "Unfold" : "Fold")
+					.setIcon("chevrons-down-up")
+					.onClick(() => this.toggleFold(id)),
+			);
+		}
+
+		if (canRename(node) || node.parent) {
+			menu.addSeparator();
+			if (canRename(node)) {
+				menu.addItem((item) =>
+					item
+						.setTitle("Rename")
+						.setIcon("text-cursor-input")
+						.onClick(() => this.beginEdit(id)),
+				);
+			}
+			if (node.parent) {
+				menu.addItem((item) =>
+					item
+						.setTitle("Delete")
+						.setIcon("trash-2")
+						.onClick(() => this.removeNode(id)),
+				);
+			}
+		}
+
+		menu.showAtMouseEvent(ev);
 	}
 
 	navigate(direction: Direction): void {

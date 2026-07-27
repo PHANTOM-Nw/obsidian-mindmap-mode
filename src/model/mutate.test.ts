@@ -7,9 +7,13 @@ import type { MindNode, ParsedDoc } from "./types.ts";
 import {
 	addChild,
 	addSibling,
+	addSiblingBefore,
 	canMove,
+	canReorder,
 	deleteNode,
 	indentNode,
+	moveAfter,
+	moveBefore,
 	moveNode,
 	outdentNode,
 	renameNode,
@@ -157,6 +161,29 @@ test("addSibling is rejected on the root", () => {
 	assert.equal(addSibling(p, p.root, "x").ok, false);
 });
 
+test("addSiblingBefore lands above the node and keeps its marker", () => {
+	const p = parse("# R\n\n1. first\n2. second\n");
+	const out = addSiblingBefore(p, find(p, "second"), "inserted");
+	const ls = lines(out.text);
+	// The marker is copied rather than advanced: this item takes second's place.
+	assert.equal(ls[ls.indexOf("2. second") - 1], "2. inserted");
+});
+
+test("addSiblingBefore pads a heading with its blank line", () => {
+	const p = parse();
+	const out = addSiblingBefore(p, find(p, "Beta"), "Mid");
+	const ls = lines(out.text);
+	const i = ls.indexOf("## Mid");
+	assert.ok(i > 0);
+	assert.equal(ls[i + 1], "");
+	assert.equal(ls[i + 2], "## Beta");
+});
+
+test("addSiblingBefore is rejected on the root", () => {
+	const p = parse();
+	assert.equal(addSiblingBefore(p, p.root, "x").ok, false);
+});
+
 test("delete removes the whole subtree and tidies the seam", () => {
 	const p = parse();
 	const out = deleteNode(p, find(p, "Alpha"));
@@ -267,6 +294,57 @@ test("moving into an ancestor whose block ends with the moved node works", () =>
 	assert.equal(serialize(parse(out.text)), out.text);
 });
 
+// --- reordering among siblings ------------------------------------------------
+
+const ORDERED = "# R\n\n## H\n\n- a\n  - a1\n- b\n- c\n";
+
+test("moveBefore drops the node directly above its new sibling", () => {
+	const p = parse(ORDERED);
+	const out = moveBefore(p, find(p, "c"), find(p, "a"));
+	assert.equal(out.text, "# R\n\n## H\n\n- c\n- a\n  - a1\n- b\n");
+});
+
+test("moveAfter clears the target's whole subtree, not just its line", () => {
+	const p = parse(ORDERED);
+	const out = moveAfter(p, find(p, "c"), find(p, "a"));
+	// Below a1, which belongs to a -- landing between a and a1 would adopt it.
+	assert.equal(out.text, "# R\n\n## H\n\n- a\n  - a1\n- c\n- b\n");
+});
+
+test("reordering headings keeps their blank-line padding", () => {
+	const source = "# R\n\n## H\n\n### A\n\ntext A\n\n### B\n\ntext B\n";
+	const p = parse(source);
+	const out = moveBefore(p, find(p, "B"), find(p, "A"));
+	assert.equal(out.text, "# R\n\n## H\n\n### B\n\ntext B\n\n### A\n\ntext A\n");
+});
+
+test("first-level branches are never reordered", () => {
+	const p = parse();
+	const alpha = find(p, "Alpha");
+	const beta = find(p, "Beta");
+	const two = find(p, "two");
+
+	// Alpha and Beta hang off the root, where the layout owns the order.
+	assert.equal(canReorder(beta, alpha), false);
+	assert.equal(canReorder(two, alpha), false);
+	assert.equal(moveBefore(p, beta, alpha).ok, false);
+	assert.equal(moveAfter(p, beta, alpha).ok, false);
+	// The root has no siblings at all.
+	assert.equal(canReorder(alpha, p.root), false);
+	// Reparenting a first-level branch is still allowed.
+	assert.equal(canMove(beta, alpha), true);
+});
+
+test("reordering is allowed from the second level down", () => {
+	const p = parse();
+	assert.equal(canReorder(find(p, "two"), find(p, "one")), true);
+	assert.equal(canReorder(find(p, "one-a"), find(p, "task")), true);
+	assert.equal(canReorder(find(p, "Gamma"), find(p, "task")), true);
+	// Beside your own descendant means "under yourself", which is refused.
+	assert.equal(canReorder(find(p, "one"), find(p, "one-a")), false);
+	assert.equal(canReorder(find(p, "task"), find(p, "task")), false);
+});
+
 test("indent nests under the previous sibling; the first child is refused", () => {
 	const p = parse("# R\n\n- a\n- b\n");
 	assert.equal(indentNode(p, find(p, "a")).ok, false);
@@ -308,6 +386,7 @@ const OPS: Op[] = [
 	["rename", (p, n) => renameNode(p, n, "renamed text")],
 	["addChild", (p, n) => addChild(p, n, "new child")],
 	["addSibling", (p, n) => addSibling(p, n, "new sibling")],
+	["addSiblingBefore", (p, n) => addSiblingBefore(p, n, "new sibling")],
 	["toggleCheckbox", (p, n) => toggleCheckbox(p, n)],
 	["indent", (p, n) => indentNode(p, n)],
 	["outdent", (p, n) => outdentNode(p, n)],
@@ -403,6 +482,46 @@ test("every legal move round-trips and keeps code content intact", () => {
 		}
 	}
 	assert.ok(performed > 20, `expected a broad sweep of moves, ran ${performed}`);
+});
+
+test("every legal reorder round-trips and keeps code content intact", () => {
+	const p = parse();
+	const nodes = everyNode(p);
+	let performed = 0;
+
+	for (const node of nodes) {
+		for (const target of nodes) {
+			if (!canReorder(node, target)) continue;
+			for (const [name, drop] of [
+				["before", moveBefore],
+				["after", moveAfter],
+			] as Array<[string, typeof moveBefore]>) {
+				const out = drop(p, node, target);
+				assert.ok(out.ok, `${name} "${node.text}" -> "${target.text}" was refused`);
+				performed++;
+
+				const label = `${name} "${node.text}" -> "${target.text}"`;
+				const reparsed = parseMarkdown(out.text, { title: "Fixture" });
+				assert.equal(serialize(reparsed), out.text, `${label} did not round-trip`);
+				assert.ok(out.text.startsWith(FRONTMATTER + "\n"), `${label} disturbed frontmatter`);
+				assert.ok(out.text.includes(CODE_LINE), `${label} damaged code content`);
+
+				// Exactly one copy survives, and it hangs off the target's parent.
+				// A list item that became a heading carries its checkbox along as
+				// literal text, so match on the tail rather than the whole title.
+				const moved = everyNode(reparsed).filter(
+					(n) => n.text === node.text || n.text.endsWith(`] ${node.text}`),
+				);
+				assert.equal(moved.length, 1, `${label} lost or duplicated the node`);
+				assert.equal(
+					moved[0].parent?.text,
+					target.parent?.text,
+					`${label} did not land beside the target`,
+				);
+			}
+		}
+	}
+	assert.ok(performed > 20, `expected a broad sweep of reorders, ran ${performed}`);
 });
 
 test("focusLine resolves to a real node after re-parsing", () => {

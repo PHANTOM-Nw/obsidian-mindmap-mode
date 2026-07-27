@@ -12,6 +12,22 @@ interface InlineContext {
 type Emit = (m: RegExpExecArray, el: HTMLElement, ctx: InlineContext) => void;
 
 /**
+ * A link, with its target carried as data rather than as an `href`.
+ *
+ * Never an `<a href>`: a note that writes `[click](javascript:…)` would then be
+ * one click away from running script in the renderer. The target stays inert
+ * text until the view is asked to open it, and the view refuses the schemes it
+ * does not know.
+ */
+function linkSpan(el: HTMLElement, cls: string, label: string, target: string): void {
+	const span = el.createSpan({ cls, text: label });
+	// `<path>` wrapping and a trailing `"title"` are markdown-link syntax, not
+	// part of what the link points at.
+	const href = target.trim().replace(/^<(.*)>$/, "$1").replace(/\s+"[^"]*"$/, "").trim();
+	if (href !== "") span.dataset.href = href;
+}
+
+/**
  * Inline markdown for node titles.
  *
  * Deliberately small and DOM-based: every value goes in as text, never as HTML,
@@ -26,15 +42,15 @@ const PATTERNS: Array<[RegExp, Emit]> = [
 	[/\*([^*]+)\*/g, (m, el, ctx) => renderRange(el.createEl("em"), m[1], ctx)],
 	[
 		/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
-		(m, el) => el.createSpan({ cls: "mm-link", text: m[2] ?? m[1] }),
+		(m, el) => linkSpan(el, "mm-link", m[2] ?? m[1], m[1]),
 	],
 	[
 		/\[([^\]]+)\]\(([^)]+)\)/g,
-		(m, el) => el.createSpan({ cls: "mm-link", text: m[1] }),
+		(m, el) => linkSpan(el, "mm-link", m[1], m[2]),
 	],
 	[
 		/!\[\[([^\]]+)\]\]/g,
-		(m, el) => el.createSpan({ cls: "mm-embed", text: m[1] }),
+		(m, el) => linkSpan(el, "mm-embed", m[1], m[1]),
 	],
 ];
 
@@ -119,6 +135,8 @@ export interface NodeElementOptions {
 	preformatted: boolean;
 	/** Draw the button that opens the block whole, in its own dialog. */
 	expandable: boolean;
+	/** Draw the hover button that adds a child. Off for note content. */
+	addable: boolean;
 	collapsed: boolean;
 	/** True when the node has anything to unfold, body cards included. */
 	hasChildren: boolean;
@@ -133,6 +151,7 @@ export interface NodeElement {
 	toggle: HTMLElement | null;
 	checkbox: HTMLElement | null;
 	expand: HTMLElement | null;
+	add: HTMLElement | null;
 	hasMath: boolean;
 }
 
@@ -189,18 +208,34 @@ export function buildNodeElement(
 		if (!expand.firstElementChild) expand.setText("⤢");
 	}
 
+	// The furniture on the branch side of the card: the fold toggle, then the
+	// button that grows a child. One row, absolutely positioned, so neither can
+	// reach the measurements `measureAndPlace` takes off this element.
 	let toggle: HTMLElement | null = null;
-	if (opts.hasChildren) {
-		toggle = el.createDiv({ cls: "mm-toggle" });
-		toggle.setAttribute("role", "button");
-		if (opts.collapsed) {
-			toggle.setText(String(opts.hiddenCount));
-			toggle.setAttribute("aria-label", "Expand");
-		} else {
-			toggle.addClass("is-open");
-			toggle.setAttribute("aria-label", "Collapse");
+	let add: HTMLElement | null = null;
+	if (opts.hasChildren || opts.addable) {
+		const tools = el.createDiv({ cls: "mm-tools" });
+
+		if (opts.hasChildren) {
+			toggle = tools.createDiv({ cls: "mm-toggle" });
+			toggle.setAttribute("role", "button");
+			if (opts.collapsed) {
+				toggle.setText(String(opts.hiddenCount));
+				toggle.setAttribute("aria-label", "Expand");
+			} else {
+				toggle.addClass("is-open");
+				toggle.setAttribute("aria-label", "Collapse");
+			}
+		}
+
+		if (opts.addable) {
+			add = tools.createDiv({ cls: "mm-add" });
+			add.setAttribute("role", "button");
+			add.setAttribute("aria-label", "Add child");
+			setIcon(add, "plus");
+			if (!add.firstElementChild) add.setText("+");
 		}
 	}
 
-	return { el, card, text, toggle, checkbox, expand, hasMath };
+	return { el, card, text, toggle, checkbox, expand, add, hasMath };
 }

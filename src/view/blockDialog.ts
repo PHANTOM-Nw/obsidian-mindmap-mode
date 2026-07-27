@@ -1,5 +1,5 @@
-import { Component, MarkdownRenderer, Modal } from "obsidian";
-import type { App } from "obsidian";
+import { Component, Keymap, MarkdownRenderer, Modal } from "obsidian";
+import type { App, PaneType } from "obsidian";
 
 import { ensureMath, finishRenderMath } from "./math.ts";
 
@@ -84,6 +84,10 @@ export class BlockDialog extends Modal {
 		this.addTab(modes, "edit", "Source");
 
 		this.body = contentEl.createDiv({ cls: "mm-dialog-body" });
+		// Bound once, not per repaint: `renderBody` empties this element, it never
+		// replaces it. Middle-click arrives as auxclick, never as click.
+		this.body.addEventListener("click", (ev) => this.followLink(ev));
+		this.body.addEventListener("auxclick", (ev) => this.followLink(ev));
 
 		const actions = contentEl.createDiv({ cls: "mm-dialog-actions" });
 		actions.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
@@ -144,6 +148,31 @@ export class BlockDialog extends Modal {
 				void this.renderMarkdown(host, text, token);
 			}
 		}
+	}
+
+	/**
+	 * Vault links, which Obsidian renders here but nothing navigates from.
+	 *
+	 * External links already work: those are handed to the platform wherever they
+	 * appear, which is why a web address opens from this dialog and `[[a.pdf]]`
+	 * does not. Both halves below matter -- the workspace call, and closing first,
+	 * because a note opened behind a modal is indistinguishable from a link that
+	 * did nothing at all.
+	 */
+	private followLink(ev: MouseEvent): void {
+		if (ev.button !== 0 && ev.button !== 1) return;
+		const el = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
+			"a.internal-link, a[data-href]",
+		);
+		if (!el || el.hasClass("external-link")) return;
+		const href = el.dataset.href ?? el.getAttribute("href");
+		if (!href) return;
+
+		ev.preventDefault();
+		ev.stopPropagation();
+		const newLeaf: PaneType | boolean = ev.button === 1 ? "tab" : Keymap.isModEvent(ev);
+		this.close();
+		void this.app.workspace.openLinkText(href, this.opts.sourcePath, newLeaf);
 	}
 
 	private async renderMarkdown(host: HTMLElement, text: string, token: number): Promise<void> {
