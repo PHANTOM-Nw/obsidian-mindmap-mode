@@ -1,6 +1,6 @@
 {
   "name": "obsidian-mindmap-mode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Toggle any note into an editable, radial mind map in place, without ever creating a file.",
   "type": "module",
   "main": "main.js",
