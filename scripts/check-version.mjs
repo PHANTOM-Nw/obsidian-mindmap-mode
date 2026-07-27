@@ -6,8 +6,11 @@
  * common reason a release silently fails to install. Catching it here turns a
  * confusing non-install into a build failure with a fix attached.
  *
- * Set RELEASE_TAG to also validate the tag being released.
+ * CI sets RELEASE_TAG to the tag being released. Locally there is nothing to set:
+ * any version-shaped tag sitting on HEAD is checked the same way, so a bad tag
+ * fails at `npm run check` rather than after it has been pushed.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const read = (path) => JSON.parse(readFileSync(path, "utf8"));
@@ -59,8 +62,27 @@ if (!(manifest.version in versions)) {
 }
 
 // --- the release tag ----------------------------------------------------------
-const tag = (process.env.RELEASE_TAG ?? "").trim();
-if (tag) {
+
+/** Version-shaped tags on HEAD. Anything else on there is not ours to judge. */
+function taggedHead() {
+	try {
+		return execFileSync("git", ["tag", "--points-at", "HEAD"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		})
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => /^v?\d+\.\d+\.\d+/.test(line));
+	} catch {
+		// No git, no repository, no tag to check. Not a version problem.
+		return [];
+	}
+}
+
+const declared = (process.env.RELEASE_TAG ?? "").trim();
+const tags = declared ? [declared] : taggedHead();
+
+for (const tag of tags) {
 	if (/^v/i.test(tag)) {
 		problems.push(
 			`Tag "${tag}" starts with "v". Obsidian requires the tag to equal the manifest ` +
@@ -84,5 +106,6 @@ if (problems.length > 0) {
 
 console.log(
 	`Version check passed: ${manifest.id} ${manifest.version} ` +
-		`(requires Obsidian >= ${manifest.minAppVersion})${tag ? `, tag "${tag}" matches` : ""}.`,
+		`(requires Obsidian >= ${manifest.minAppVersion})` +
+		`${tags.length > 0 ? `, tag "${tags.join('", "')}" matches` : ""}.`,
 );
