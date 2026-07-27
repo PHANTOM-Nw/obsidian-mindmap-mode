@@ -162,8 +162,11 @@
 	font-weight: 550;
 }
 
-/* Deeper topics sit on the line, XMind style, rather than in a heavy box. */
-.mm-node:not([data-depth="0"]):not([data-depth="1"]) .mm-card {
+/* Deeper topics sit on the line, XMind style, rather than in a heavy box.
+   Body cards are excluded by name rather than by specificity: this selector
+   scores higher than the one that styles them, so a :not() is what keeps note
+   content from being drawn as a topic. */
+.mm-node:not([data-depth="0"]):not([data-depth="1"]):not([data-kind="body"]) .mm-card {
 	background: transparent;
 	border: none;
 	border-bottom: 2px solid color-mix(in srgb, var(--mm-branch) 55%, transparent);
@@ -171,7 +174,7 @@
 	padding: 3px 8px;
 }
 
-.mm-node:not([data-depth="0"]):not([data-depth="1"]) .mm-card:hover {
+.mm-node:not([data-depth="0"]):not([data-depth="1"]):not([data-kind="body"]) .mm-card:hover {
 	background: var(--background-modifier-hover);
 	border-bottom-color: var(--mm-branch);
 }
@@ -314,30 +317,36 @@
 	text-decoration: line-through;
 }
 
-/* --- body badge ---------------------------------------------------------- */
+/* --- note content -------------------------------------------------------- */
 
-.mm-badge {
-	flex: 0 0 auto;
-	display: inline-flex;
-	align-items: center;
-	gap: 2px;
-	align-self: center;
-	padding: 1px 5px;
+/* Paragraphs, code blocks and tables, drawn as their own leaf cards so they
+   fold with the branch they belong to. Quieter than a topic card, and shaped
+   like a quote rather than a node, so the difference is legible at a glance. */
+.mm-node[data-kind="body"] .mm-card {
+	align-items: flex-start;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid color-mix(in srgb, var(--mm-branch) 60%, transparent);
 	border-radius: 4px;
-	background: var(--background-modifier-border);
+	padding: 6px 10px;
 	color: var(--text-muted);
-	font-size: 10px;
-	line-height: 1.4;
-	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
+	cursor: text;
+	/* Note content is there to be read and copied, unlike a topic card. */
+	user-select: text;
 }
 
-.mm-badge:hover {
-	background: var(--interactive-accent);
-	color: var(--text-on-accent);
+.mm-node[data-kind="body"] .mm-card:hover {
+	background: var(--background-modifier-hover);
+	border-left-color: var(--mm-branch);
 }
 
-.mm-badge-count {
-	font-variant-numeric: tabular-nums;
+/* Code and tables only: prose keeps the reading face. */
+.mm-node[data-block="pre"] .mm-text {
+	font-family: var(--font-monospace);
+	font-size: 0.95em;
+	tab-size: 4;
 }
 
 /* --- fold toggle --------------------------------------------------------- */

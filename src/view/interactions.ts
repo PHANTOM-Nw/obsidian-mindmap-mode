@@ -17,7 +17,6 @@ export interface MapController {
 	outdent(id: string): void;
 	toggleFold(id: string): void;
 	toggleCheck(id: string): void;
-	openBody(id: string): void;
 	navigate(direction: Direction): void;
 
 	canDrop(id: string, targetId: string): boolean;
@@ -79,13 +78,6 @@ export function attachInteractions(controller: MapController): () => void {
 			ev.stopPropagation();
 			return;
 		}
-		const badge = target.closest<HTMLElement>(".mm-badge");
-		if (badge) {
-			const id = nodeIdFrom(badge);
-			if (id) controller.openBody(id);
-			ev.stopPropagation();
-			return;
-		}
 		const id = nodeIdFrom(target);
 		controller.select(id);
 		if (!controller.isEditing()) viewport.focus({ preventScroll: true });
@@ -126,9 +118,11 @@ export function attachInteractions(controller: MapController): () => void {
 	on(viewport, "pointerdown", (ev) => {
 		if (ev.button !== 0 || controller.isEditing()) return;
 		const target = ev.target as HTMLElement;
-		if (target.closest(".mm-toggle, .mm-checkbox, .mm-badge")) return;
+		if (target.closest(".mm-toggle, .mm-checkbox")) return;
 		const card = target.closest<HTMLElement>(".mm-card");
-		if (!card) return;
+		// A body card stands for lines the note owns, not a node that can be
+		// reparented, so it never starts a drag.
+		if (!card || card.closest('.mm-node[data-kind="body"]')) return;
 		const id = nodeIdFrom(card);
 		if (!id) return;
 

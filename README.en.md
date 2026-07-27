@@ -70,8 +70,17 @@ the round trip.
 ### Paragraphs, code blocks and tables
 
 Content that is not a heading or a list item stays exactly where it is in the
-note. The owning node shows a small `≡` badge; click it to read or edit those
-lines in a popover. Editing there rewrites only those lines.
+note — and gets its own card on the map, folding and unfolding with the branch
+it belongs to, interleaved with its siblings in file order. Code blocks and
+tables keep a monospace face and their own line breaks; prose is set in the
+reading face, formulas included.
+
+Double-click one to edit that block in a popover, rewriting only those lines.
+They cannot be renamed, dragged or deleted — those lines belong to the note, and
+the map is only showing them. Long blocks are clipped on the card; double-click
+to see the whole thing.
+
+Turn **Show note content** off in the settings to keep them off the map.
 
 ## Install
 
@@ -107,8 +116,8 @@ real notes.
 
 Node source (headings and lists / headings only / lists only), deepest heading
 level, root node policy, indent unit for new list items, layout (balanced or
-single-sided), branch colours, body badges, card width, spacing, wheel
-behaviour, and whether to add the header button.
+single-sided), branch colours, whether note content appears as cards, card
+width, spacing, wheel behaviour, and whether to add the header button.
 
 ## How the round trip is kept safe
 

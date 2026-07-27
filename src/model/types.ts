@@ -1,6 +1,12 @@
 import type { LineDoc } from "./lines.ts";
 
-export type NodeKind = "root" | "heading" | "listitem";
+/**
+ * "body" is never produced by the parser. The view synthesises those nodes from
+ * a node's `bodyRanges` so paragraphs, code blocks and tables can be expanded on
+ * the map; they are deliberately absent from `byId`/`byKey`, which is what makes
+ * every mutation refuse them.
+ */
+export type NodeKind = "root" | "heading" | "listitem" | "body";
 
 /** `null` when the item has no checkbox at all. */
 export type CheckboxState = " " | "x" | "X" | null;

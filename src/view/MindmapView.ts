@@ -42,9 +42,46 @@ const UNDO_LIMIT = 100;
  */
 const INITIAL_EXPAND_LEVEL = 1;
 
+/** Separates a body card's id from its owner's. Never appears in a parsed id. */
+const BODY_ID_MARK = "$body";
+
+/** Body cards show their block in full up to this much, then trail off. */
+const BODY_PREVIEW_CHARS = 600;
+const BODY_PREVIEW_LINES = 12;
+
+/**
+ * What a body card shows. The full text stays one double-click away, so this
+ * only has to stop a 300-line code block from becoming a 300-line card.
+ */
+function previewOf(text: string): string {
+	const lines = text.replace(/\s+$/, "").split("\n");
+	let clipped = lines.length > BODY_PREVIEW_LINES;
+	let out = lines.slice(0, BODY_PREVIEW_LINES).join("\n");
+	if (out.length > BODY_PREVIEW_CHARS) {
+		out = out.slice(0, BODY_PREVIEW_CHARS);
+		clipped = true;
+	}
+	return clipped ? `${out.replace(/\s+$/, "")}…` : out;
+}
+
+/**
+ * Blocks that must keep their own shape: fenced code, indented code and tables.
+ * These skip the inline markdown pass, so a `**` inside a code sample stays a
+ * `**`, and they are drawn in a monospace face where alignment carries meaning.
+ */
+function looksPreformatted(text: string): boolean {
+	return /^(?:```|~~~|\t| {4}|\|)/.test(text);
+}
+
 interface PendingFocus {
 	line: number;
 	edit: boolean;
+}
+
+/** Where a body card came from, so its editor can find the range again. */
+interface BodyRef {
+	ownerKey: string;
+	index: number;
 }
 
 export class MindmapView extends TextFileView implements MapController {
@@ -59,6 +96,8 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private collapsedKeys = new Set<string>();
 	private foldSeedPending = false;
+	/** Body cards drawn by the last paint, keyed by their synthetic id. */
+	private bodyNodes = new Map<string, BodyRef>();
 	private selectionKey: string | null = null;
 	private editingId: string | null = null;
 	private pendingFocus: PendingFocus | null = null;
@@ -79,8 +118,12 @@ export class MindmapView extends TextFileView implements MapController {
 		this.contentEl.addClass("mindmap-mode");
 		this.canvas = new Canvas(this.contentEl, {
 			wheel: plugin.settings.wheel,
-			// Only blank space starts a pan; cards belong to the drag handler.
-			canPan: (target) => !target.closest(".mm-card"),
+			// Only blank space starts a pan; everything a node owns belongs to the
+			// drag and click handlers. The fold toggle has to be named explicitly:
+			// it hangs off `.mm-node`, outside the card, and letting a pan start on
+			// it means the canvas takes pointer capture — after which Chromium
+			// retargets the click to the viewport and `toggleFold` never fires.
+			canPan: (target) => !target.closest(".mm-card, .mm-toggle"),
 		});
 		this.canvas.viewport.tabIndex = 0;
 		this.buildToolbar();
@@ -318,6 +361,78 @@ export class MindmapView extends TextFileView implements MapController {
 		this.paint();
 	}
 
+	// --- body content as nodes -------------------------------------------------
+
+	/**
+	 * A node's children as the map draws them: its real children plus one card
+	 * per block of note content, interleaved in the order they appear in the file.
+	 *
+	 * The body cards are synthesised here and never enter `parsed.byId`, so every
+	 * mutation -- rename, move, delete, indent -- looks them up, misses, and does
+	 * nothing. That is the whole safety story: the note owns those lines, and the
+	 * only way to change them is the editor `openBody` puts up.
+	 */
+	private childrenOf(parsed: ParsedDoc, node: MindNode, showBody: boolean): MindNode[] {
+		if (!showBody || node.bodyRanges.length === 0) return node.children;
+
+		const merged: Array<{ line: number; node: MindNode }> = node.children.map((c) => ({
+			line: c.lineStart,
+			node: c,
+		}));
+
+		node.bodyRanges.forEach((range, index) => {
+			const body = this.makeBodyNode(parsed, node, range, index);
+			merged.push({ line: range[0], node: body });
+		});
+
+		merged.sort((a, b) => a.line - b.line);
+		return merged.map((entry) => entry.node);
+	}
+
+	private makeBodyNode(
+		parsed: ParsedDoc,
+		owner: MindNode,
+		range: [number, number],
+		index: number,
+	): MindNode {
+		const id = `${owner.id}${BODY_ID_MARK}${index}`;
+		const body: MindNode = {
+			id,
+			key: `${owner.key}${BODY_ID_MARK}${index}`,
+			kind: "body",
+			virtual: true,
+			text: previewOf(bodyRangeText(parsed, range)),
+			level: owner.level,
+			indentWidth: 0,
+			indent: "",
+			marker: "",
+			spacing: "",
+			checkbox: null,
+			checkboxSpacing: "",
+			suffix: "",
+			lineStart: range[0],
+			blockEnd: range[1],
+			bodyRanges: [],
+			children: [],
+			// Kept for `revealAncestors`; `owner.children` is never touched, so the
+			// parsed tree stays exactly as the parser left it.
+			parent: owner,
+		};
+		this.bodyNodes.set(id, { ownerKey: owner.key, index });
+		return body;
+	}
+
+	private childCount(node: MindNode, showBody: boolean): number {
+		return node.children.length + (showBody ? node.bodyRanges.length : 0);
+	}
+
+	/** Everything a collapsed node is hiding, body cards included. */
+	private hiddenCount(node: MindNode, showBody: boolean): number {
+		let total = showBody ? node.bodyRanges.length : 0;
+		for (const child of node.children) total += 1 + this.hiddenCount(child, showBody);
+		return total;
+	}
+
 	private findByLine(line: number): MindNode | null {
 		if (!this.parsed || line < 0) return null;
 		for (const node of this.parsed.byId.values()) {
@@ -340,13 +455,16 @@ export class MindmapView extends TextFileView implements MapController {
 		this.edgeLayer = createEdgeLayer(this.canvas.content);
 		this.nodeLayer = this.canvas.content.createDiv({ cls: "mm-nodes" });
 
+		const showBody = s.showBodyNodes;
+		this.bodyNodes.clear();
+
 		// Build the tree of visible nodes; a collapsed node contributes no children.
 		const rootLayout = createLayoutNode(parsed.root, null, 0);
 		const visible: LayoutNode[] = [];
 		const build = (node: MindNode, layout: LayoutNode): void => {
 			visible.push(layout);
 			if (this.collapsedKeys.has(node.key)) return;
-			for (const child of node.children) {
+			for (const child of this.childrenOf(parsed, node, showBody)) {
 				const childLayout = createLayoutNode(child, layout, layout.depth + 1);
 				layout.children.push(childLayout);
 				build(child, childLayout);
@@ -356,14 +474,17 @@ export class MindmapView extends TextFileView implements MapController {
 
 		let sawMath = false;
 		for (const layout of visible) {
+			const node = layout.node;
+			const collapsed = this.collapsedKeys.has(node.key);
 			const element = buildNodeElement(this.nodeLayer, layout, {
 				maxWidth: s.maxNodeWidth,
-				showBodyBadges: s.showBodyBadges,
 				branchColors: s.branchColors,
-				collapsed: this.collapsedKeys.has(layout.node.key),
-				hiddenCount: 0,
+				preformatted: node.kind === "body" && looksPreformatted(node.text),
+				collapsed,
+				hasChildren: this.childCount(node, showBody) > 0,
+				hiddenCount: collapsed ? this.hiddenCount(node, showBody) : 0,
 			});
-			this.elements.set(layout.node.id, element);
+			this.elements.set(node.id, element);
 			if (element.hasMath) sawMath = true;
 		}
 
@@ -498,7 +619,9 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	select(id: string | null): void {
-		if (id === null) {
+		// A body card is not something the map can act on, so picking one drops
+		// the selection rather than leaving the previous card looking active.
+		if (id === null || this.bodyNodes.has(id)) {
 			this.selectionKey = null;
 			this.applySelection();
 			return;
@@ -510,6 +633,13 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	beginEdit(id: string): void {
+		// Body cards hold lines the note owns, not a node title. Editing one means
+		// the block editor, which rewrites exactly those lines and nothing else.
+		if (this.bodyNodes.has(id)) {
+			this.openBody(id);
+			return;
+		}
+
 		const element = this.elements.get(id);
 		const node = this.parsed?.byId.get(id);
 		if (!element || !node) return;
@@ -652,6 +782,9 @@ export class MindmapView extends TextFileView implements MapController {
 
 		for (const candidate of this.layoutNodes) {
 			if (candidate === current) continue;
+			// Body cards cannot hold the selection, so stepping onto one would
+			// leave the arrow keys apparently stuck.
+			if (this.bodyNodes.has(candidate.node.id)) continue;
 			const dx = candidate.x + candidate.width / 2 - cx;
 			const dy = candidate.y + candidate.height / 2 - cy;
 
@@ -763,8 +896,14 @@ export class MindmapView extends TextFileView implements MapController {
 
 	openBody(id: string): void {
 		const parsed = this.parsed;
-		const node = parsed?.byId.get(id);
-		if (!parsed || !node || node.bodyRanges.length === 0) return;
+		if (!parsed) return;
+
+		// A body card edits its own block; anything else edits all of its blocks.
+		const ref = this.bodyNodes.get(id);
+		const node = ref ? parsed.byKey.get(ref.ownerKey) : parsed.byId.get(id);
+		if (!node || node.bodyRanges.length === 0) return;
+		const only = ref?.index;
+		if (only !== undefined && !node.bodyRanges[only]) return;
 
 		const panel = this.openPopover();
 		panel.addClass("mm-body-popover");
@@ -776,6 +915,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 		const areas: Array<{ index: number; original: string; el: HTMLTextAreaElement }> = [];
 		node.bodyRanges.forEach((range, index) => {
+			if (only !== undefined && index !== only) return;
 			const original = bodyRangeText(parsed, range);
 			const wrapper = panel.createDiv({ cls: "mm-body-block" });
 			wrapper.createDiv({
@@ -784,7 +924,7 @@ export class MindmapView extends TextFileView implements MapController {
 			});
 			const area = wrapper.createEl("textarea", { cls: "mm-body-input" });
 			area.value = original;
-			area.rows = Math.min(12, original.split("\n").length + 1);
+			area.rows = Math.min(16, original.split("\n").length + 1);
 			areas.push({ index, original, el: area });
 		});
 
@@ -820,10 +960,10 @@ export class MindmapView extends TextFileView implements MapController {
 			this.commit(text, -1, false);
 		});
 
-		const badge = this.elements.get(id)?.badge;
+		const anchor = this.elements.get(id)?.card;
 		const host = this.contentEl.getBoundingClientRect();
-		if (badge) {
-			const rect = badge.getBoundingClientRect();
+		if (anchor) {
+			const rect = anchor.getBoundingClientRect();
 			panel.style.left = `${Math.max(8, Math.min(rect.left - host.left, host.width - 380))}px`;
 			panel.style.top = `${Math.min(rect.bottom - host.top + 8, host.height - 120)}px`;
 		} else {

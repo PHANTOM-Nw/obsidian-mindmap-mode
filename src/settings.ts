@@ -14,7 +14,7 @@ export interface MindmapSettings {
 	indentUnit: "auto" | "two" | "four" | "tab";
 	wheel: WheelMode;
 	branchColors: boolean;
-	showBodyBadges: boolean;
+	showBodyNodes: boolean;
 	maxNodeWidth: number;
 	horizontalGap: number;
 	verticalGap: number;
@@ -29,7 +29,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	indentUnit: "auto",
 	wheel: "zoom",
 	branchColors: true,
-	showBodyBadges: true,
+	showBodyNodes: true,
 	maxNodeWidth: 340,
 	horizontalGap: 64,
 	verticalGap: 14,
@@ -157,13 +157,13 @@ export class MindmapSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Show body badges")
+			.setName("Show note content")
 			.setDesc(
-				"Mark nodes whose paragraphs, code blocks or tables are kept in the note.",
+				"Paragraphs, code blocks and tables become their own cards, so they fold and unfold with the branch they belong to. Double-click one to edit it.",
 			)
 			.addToggle((t) =>
-				t.setValue(this.plugin.settings.showBodyBadges).onChange(async (value) => {
-					this.plugin.settings.showBodyBadges = value;
+				t.setValue(this.plugin.settings.showBodyNodes).onChange(async (value) => {
+					this.plugin.settings.showBodyNodes = value;
 					await save();
 				}),
 			);

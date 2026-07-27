@@ -1,4 +1,3 @@
-import type { MindNode } from "../model/types.ts";
 import type { LayoutNode } from "../layout/tidyTree.ts";
 import { renderMathInto } from "./math.ts";
 import { MATH_DISPLAY, MATH_INLINE } from "./mathSyntax.ts";
@@ -113,9 +112,13 @@ export function renderInline(el: HTMLElement, text: string): boolean {
 
 export interface NodeElementOptions {
 	maxWidth: number;
-	showBodyBadges: boolean;
 	branchColors: boolean;
+	/** Render the text verbatim: code blocks and tables must not be marked up. */
+	preformatted: boolean;
 	collapsed: boolean;
+	/** True when the node has anything to unfold, body cards included. */
+	hasChildren: boolean;
+	/** Shown on the toggle while collapsed. */
 	hiddenCount: number;
 }
 
@@ -124,15 +127,8 @@ export interface NodeElement {
 	card: HTMLElement;
 	text: HTMLElement;
 	toggle: HTMLElement | null;
-	badge: HTMLElement | null;
 	checkbox: HTMLElement | null;
 	hasMath: boolean;
-}
-
-function descendantCount(node: MindNode): number {
-	let total = 0;
-	for (const child of node.children) total += 1 + descendantCount(child);
-	return total;
 }
 
 export function buildNodeElement(
@@ -164,25 +160,20 @@ export function buildNodeElement(
 	}
 
 	const text = card.createDiv({ cls: "mm-text" });
-	const hasMath = renderInline(text, node.text);
-
-	let badge: HTMLElement | null = null;
-	if (opts.showBodyBadges && node.bodyRanges.length > 0) {
-		badge = card.createDiv({ cls: "mm-badge" });
-		badge.createSpan({ cls: "mm-badge-icon", text: "≡" });
-		badge.createSpan({ cls: "mm-badge-count", text: String(node.bodyRanges.length) });
-		badge.setAttribute(
-			"aria-label",
-			`${node.bodyRanges.length} block${node.bodyRanges.length === 1 ? "" : "s"} of note content`,
-		);
+	let hasMath = false;
+	if (opts.preformatted) {
+		el.dataset.block = "pre";
+		text.setText(node.text);
+	} else {
+		hasMath = renderInline(text, node.text);
 	}
 
 	let toggle: HTMLElement | null = null;
-	if (node.children.length > 0) {
+	if (opts.hasChildren) {
 		toggle = el.createDiv({ cls: "mm-toggle" });
 		toggle.setAttribute("role", "button");
 		if (opts.collapsed) {
-			toggle.setText(String(opts.hiddenCount || descendantCount(node)));
+			toggle.setText(String(opts.hiddenCount));
 			toggle.setAttribute("aria-label", "Expand");
 		} else {
 			toggle.addClass("is-open");
@@ -190,5 +181,5 @@ export function buildNodeElement(
 		}
 	}
 
-	return { el, card, text, toggle, badge, checkbox, hasMath };
+	return { el, card, text, toggle, checkbox, hasMath };
 }
