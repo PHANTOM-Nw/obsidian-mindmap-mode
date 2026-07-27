@@ -93,10 +93,20 @@
 
 /* --- nodes --------------------------------------------------------------- */
 
+/*
+ * `width: max-content` is load-bearing, not decorative. Cards are absolutely
+ * positioned inside `.mm-nodes`, which is itself absolute and holds nothing but
+ * out-of-flow children, so its width resolves to 0. Shrink-to-fit against a
+ * zero-width containing block collapses to min-content -- and min-content for
+ * CJK text is a single glyph, which is what turned every card into a vertical
+ * string of characters. The inline max-width set in buildNodeElement only caps;
+ * it cannot grow the box.
+ */
 .mm-node {
 	position: absolute;
 	top: 0;
 	left: 0;
+	width: max-content;
 	will-change: transform;
 }
 
@@ -188,7 +198,10 @@
 
 .mm-text {
 	white-space: pre-wrap;
-	overflow-wrap: anywhere;
+	/* `anywhere` also shrinks the intrinsic min-content size; `break-word` only
+	   steps in when a single unbreakable run really would overflow. */
+	overflow-wrap: break-word;
+	text-wrap: pretty;
 	min-width: 1ch;
 }
 
@@ -222,6 +235,47 @@
 .mm-text .mm-embed {
 	color: var(--text-muted);
 	font-style: italic;
+}
+
+/* --- math ---------------------------------------------------------------- */
+
+.mm-math {
+	display: inline-block;
+	vertical-align: middle;
+}
+
+/* MathJax injects its own stylesheet into <head>, possibly after this file, and
+   its `mjx-container[jax="CHTML"][display="true"]` rule scores (0,2,1) -- the
+   same as a plain `.mm-text .mm-math mjx-container`. The `.mindmap-mode` prefix
+   takes it to (0,3,1) and wins without reaching for !important. */
+.mindmap-mode .mm-text .mm-math mjx-container,
+.mindmap-mode .mm-text .mm-math mjx-container[display="true"] {
+	display: inline-block;
+	margin: 0;
+	padding: 0;
+	text-align: left;
+}
+
+/* MathJax missing or still loading: show the source, legibly. */
+.mm-math-raw {
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	color: var(--text-muted);
+}
+
+.mm-math-error {
+	color: var(--text-error);
+	text-decoration: underline dotted;
+}
+
+/* Rendered for real, then parked off-screen. Neither `display: none` nor
+   `visibility: hidden` will do: a browser is free to skip font loading for
+   either, and getting the fonts loaded is the whole point of the probe. */
+.mm-math-probe {
+	position: absolute;
+	top: -9999px;
+	left: -9999px;
+	pointer-events: none;
 }
 
 /* --- checkbox ------------------------------------------------------------ */

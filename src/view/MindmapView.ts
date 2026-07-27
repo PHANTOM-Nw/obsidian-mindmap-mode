@@ -26,6 +26,7 @@ import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
 import { attachInteractions } from "./interactions.ts";
+import { ensureMath, finishRenderMath, mathAvailable, mathSettled } from "./math.ts";
 import type { Direction, MapController } from "./interactions.ts";
 import { resolveIndentUnit } from "../settings.ts";
 import type MindmapPlugin from "../main.ts";
@@ -33,6 +34,13 @@ import type MindmapPlugin from "../main.ts";
 export const MINDMAP_VIEW_TYPE = "mindmap-mode-view";
 
 const UNDO_LIMIT = 100;
+
+/**
+ * Depth kept open when a map is first painted. 0 would leave only the root, 1
+ * shows the root plus its top-level branches with a descendant count on each
+ * toggle -- compact enough to scan, complete enough to navigate.
+ */
+const INITIAL_EXPAND_LEVEL = 1;
 
 interface PendingFocus {
 	line: number;
@@ -50,6 +58,7 @@ export class MindmapView extends TextFileView implements MapController {
 	private elements = new Map<string, NodeElement>();
 
 	private collapsedKeys = new Set<string>();
+	private foldSeedPending = false;
 	private selectionKey: string | null = null;
 	private editingId: string | null = null;
 	private pendingFocus: PendingFocus | null = null;
@@ -61,6 +70,7 @@ export class MindmapView extends TextFileView implements MapController {
 	private popover: HTMLElement | null = null;
 	private needsFit = true;
 	private paintedEmpty = false;
+	private paintToken = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MindmapPlugin) {
 		super(leaf);
@@ -102,6 +112,10 @@ export class MindmapView extends TextFileView implements MapController {
 			this.undoStack = [];
 			this.redoStack = [];
 			this.needsFit = true;
+			// `clear` means a different file, which is the only moment the map
+			// may re-fold. Saves and external edits arrive with clear === false,
+			// so typing can never collapse the tree out from under the user.
+			this.foldSeedPending = true;
 		}
 		this.render();
 	}
@@ -113,10 +127,17 @@ export class MindmapView extends TextFileView implements MapController {
 		this.elements.clear();
 		this.collapsedKeys.clear();
 		this.selectionKey = null;
+		this.paintToken++;
 		this.closePopover();
 	}
 
 	override async onOpen(): Promise<void> {
+		// Warm MathJax now rather than on the first formula: opening a map is
+		// already a deliberate action, so the cost is invisible here, and it
+		// spares the first painted map its one placeholder-to-formula rebuild.
+		// Deliberately not in the plugin's onload -- users who never open a map
+		// should not pay for it at Obsidian startup.
+		void ensureMath();
 		this.detachInteractions = attachInteractions(this);
 		this.addAction("file-text", "Edit as markdown", () => {
 			void this.plugin.toggleLeaf(this.leaf);
@@ -124,6 +145,7 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	override async onClose(): Promise<void> {
+		this.paintToken++;
 		this.detachInteractions?.();
 		this.detachInteractions = null;
 		this.closePopover();
@@ -180,6 +202,8 @@ export class MindmapView extends TextFileView implements MapController {
 		button("zoom-out", "Zoom out", () => this.canvas.zoomBy(1 / 1.2));
 		button("maximize", "Fit to window", () => this.fit());
 		button("crosshair", "Centre on selection", () => this.centreOnSelection());
+		button("chevrons-up-down", "Expand all", () => this.expandAll());
+		button("chevrons-down-up", "Collapse all", () => this.collapseAll());
 		button("help-circle", "Keyboard shortcuts", () => this.showShortcuts());
 	}
 
@@ -229,18 +253,68 @@ export class MindmapView extends TextFileView implements MapController {
 	private render(): void {
 		this.parsed = parseMarkdown(this.data, this.parseOptions());
 
+		// Before anything reveals a node: foldFrom clears the whole set.
+		if (this.foldSeedPending) {
+			this.foldSeedPending = false;
+			this.foldFrom(INITIAL_EXPAND_LEVEL);
+		}
+
 		if (this.pendingFocus) {
 			const focus = this.pendingFocus;
 			this.pendingFocus = null;
 			const target = this.findByLine(focus.line);
 			if (target) {
 				this.selectionKey = target.key;
+				this.revealAncestors(target);
 				this.paint();
 				if (focus.edit) this.beginEdit(target.id);
 				this.revealSelection();
 				return;
 			}
 		}
+		this.paint();
+	}
+
+	/**
+	 * Collapse every node at or below `depth`, counting the root as 0. Pass
+	 * `Infinity` to expand everything.
+	 *
+	 * Seeding continues past nodes that are themselves collapsed. `paint()` just
+	 * stops descending when it meets a collapsed key, so the deeper entries cost
+	 * nothing to carry -- and they are what makes expanding a branch reveal one
+	 * level at a time rather than dumping the whole subtree on screen.
+	 */
+	private foldFrom(depth: number): void {
+		this.collapsedKeys.clear();
+		if (!this.parsed || !Number.isFinite(depth)) return;
+		const visit = (node: MindNode, d: number): void => {
+			if (d >= depth && node.children.length > 0) this.collapsedKeys.add(node.key);
+			for (const child of node.children) visit(child, d + 1);
+		};
+		visit(this.parsed.root, 0);
+	}
+
+	/**
+	 * Open whatever is hiding a node the user is about to work on.
+	 *
+	 * Indent, outdent, drag and undo can all land a node under a collapsed
+	 * parent. Without this the node simply vanishes, and every follow-up -- the
+	 * selection, `beginEdit` -- silently no-ops against a missing element.
+	 */
+	private revealAncestors(node: MindNode): void {
+		for (let p: MindNode | null = node.parent; p; p = p.parent) {
+			this.collapsedKeys.delete(p.key);
+		}
+	}
+
+	expandAll(): void {
+		this.foldFrom(Infinity);
+		this.paint();
+	}
+
+	/** Back to the view the map opens with. */
+	collapseAll(): void {
+		this.foldFrom(INITIAL_EXPAND_LEVEL);
 		this.paint();
 	}
 
@@ -255,6 +329,10 @@ export class MindmapView extends TextFileView implements MapController {
 	private paint(): void {
 		const parsed = this.parsed;
 		if (!parsed) return;
+
+		// Invalidates any measurement callback still in flight from an earlier
+		// paint, so a slow MathJax flush cannot lay out a map that is now gone.
+		const token = ++this.paintToken;
 
 		const s = this.plugin.settings;
 		this.canvas.content.empty();
@@ -276,6 +354,7 @@ export class MindmapView extends TextFileView implements MapController {
 		};
 		build(parsed.root, rootLayout);
 
+		let sawMath = false;
 		for (const layout of visible) {
 			const element = buildNodeElement(this.nodeLayer, layout, {
 				maxWidth: s.maxNodeWidth,
@@ -285,9 +364,51 @@ export class MindmapView extends TextFileView implements MapController {
 				hiddenCount: 0,
 			});
 			this.elements.set(layout.node.id, element);
+			if (element.hasMath) sawMath = true;
 		}
 
+		const wasFitting = this.needsFit;
+		this.measureAndPlace(rootLayout, visible);
+		if (!sawMath) return;
+
+		if (!mathSettled()) {
+			// First map with formulas this session: what is on screen right now
+			// is placeholder source text, so the cards have to be rebuilt rather
+			// than re-measured. `ensureMath` settles either way, so the repaint
+			// takes the branch below and this can run at most once per session.
+			void ensureMath().then(() => {
+				if (token !== this.paintToken) return;
+				if (wasFitting) this.needsFit = true;
+				this.paint();
+			});
+			return;
+		}
+		if (!mathAvailable()) return;
+
+		// MathJax emits its stylesheet adaptively, one glyph at a time, so a
+		// formula reaching for a glyph nobody has used yet measures short until
+		// the flush lands. Re-measure, but never rebuild: `measureAndPlace` only
+		// reads and positions, so it cannot schedule itself again.
+		void finishRenderMath().then(() => {
+			if (token !== this.paintToken) return;
+			if (wasFitting) this.needsFit = true;
+			this.measureAndPlace(rootLayout, visible);
+		});
+	}
+
+	/**
+	 * Measure the cards that `paint()` built and position everything.
+	 *
+	 * Safe to run more than once over the same tree: `layoutTree` assigns
+	 * coordinates outright rather than accumulating them, and `renderEdges`
+	 * clears the layer before it draws.
+	 */
+	private measureAndPlace(rootLayout: LayoutNode, visible: LayoutNode[]): void {
+		const s = this.plugin.settings;
+
 		// One batched read pass: every write above, every measurement here.
+		// offsetWidth, not getBoundingClientRect -- the cards sit inside a
+		// scaled `.mm-content`, and a rect would feed the zoom back into layout.
 		for (const layout of visible) {
 			const element = this.elements.get(layout.node.id);
 			if (!element) continue;

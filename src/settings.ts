@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	wheel: "zoom",
 	branchColors: true,
 	showBodyBadges: true,
-	maxNodeWidth: 260,
+	maxNodeWidth: 340,
 	horizontalGap: 64,
 	verticalGap: 14,
 	addHeaderButton: true,

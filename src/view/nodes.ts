@@ -1,7 +1,14 @@
 import type { MindNode } from "../model/types.ts";
 import type { LayoutNode } from "../layout/tidyTree.ts";
+import { renderMathInto } from "./math.ts";
+import { MATH_DISPLAY, MATH_INLINE } from "./mathSyntax.ts";
 
-type Emit = (m: RegExpExecArray, el: HTMLElement) => void;
+/** Carried through the recursion so nested markup can report what it emitted. */
+interface InlineContext {
+	sawMath: boolean;
+}
+
+type Emit = (m: RegExpExecArray, el: HTMLElement, ctx: InlineContext) => void;
 
 /**
  * Inline markdown for node titles.
@@ -11,11 +18,11 @@ type Emit = (m: RegExpExecArray, el: HTMLElement) => void;
  */
 const PATTERNS: Array<[RegExp, Emit]> = [
 	[/`([^`]+)`/g, (m, el) => el.createEl("code", { cls: "mm-code", text: m[1] })],
-	[/\*\*([^*]+)\*\*/g, (m, el) => renderRange(el.createEl("strong"), m[1])],
-	[/__([^_]+)__/g, (m, el) => renderRange(el.createEl("strong"), m[1])],
-	[/~~([^~]+)~~/g, (m, el) => renderRange(el.createEl("del"), m[1])],
-	[/==([^=]+)==/g, (m, el) => renderRange(el.createEl("mark"), m[1])],
-	[/\*([^*]+)\*/g, (m, el) => renderRange(el.createEl("em"), m[1])],
+	[/\*\*([^*]+)\*\*/g, (m, el, ctx) => renderRange(el.createEl("strong"), m[1], ctx)],
+	[/__([^_]+)__/g, (m, el, ctx) => renderRange(el.createEl("strong"), m[1], ctx)],
+	[/~~([^~]+)~~/g, (m, el, ctx) => renderRange(el.createEl("del"), m[1], ctx)],
+	[/==([^=]+)==/g, (m, el, ctx) => renderRange(el.createEl("mark"), m[1], ctx)],
+	[/\*([^*]+)\*/g, (m, el, ctx) => renderRange(el.createEl("em"), m[1], ctx)],
 	[
 		/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
 		(m, el) => el.createSpan({ cls: "mm-link", text: m[2] ?? m[1] }),
@@ -30,15 +37,39 @@ const PATTERNS: Array<[RegExp, Emit]> = [
 	],
 ];
 
+/**
+ * Math goes in front so that on the rare exact-index tie the strict `<` in
+ * `nextToken` awards the token to the formula. Everything past that is decided
+ * by earliest-match-wins, which is what keeps `$a_b$` away from the `__` rule
+ * and `$x*y*z$` away from the `*` rule.
+ */
+const ALL_PATTERNS: Array<[RegExp, Emit]> = [
+	[
+		MATH_DISPLAY,
+		(m, el, ctx) => {
+			ctx.sawMath = true;
+			renderMathInto(el, m[1], true);
+		},
+	],
+	[
+		MATH_INLINE,
+		(m, el, ctx) => {
+			ctx.sawMath = true;
+			renderMathInto(el, m[1], false);
+		},
+	],
+	...PATTERNS,
+];
+
 interface Token {
 	start: number;
 	end: number;
 	emit: (el: HTMLElement) => void;
 }
 
-function nextToken(text: string, from: number): Token | null {
+function nextToken(text: string, from: number, ctx: InlineContext): Token | null {
 	let best: Token | null = null;
-	for (const [re, emit] of PATTERNS) {
+	for (const [re, emit] of ALL_PATTERNS) {
 		re.lastIndex = from;
 		const m = re.exec(text);
 		if (!m) continue;
@@ -46,17 +77,17 @@ function nextToken(text: string, from: number): Token | null {
 			best = {
 				start: m.index,
 				end: m.index + m[0].length,
-				emit: (el) => emit(m, el),
+				emit: (el) => emit(m, el, ctx),
 			};
 		}
 	}
 	return best;
 }
 
-function renderRange(el: HTMLElement, text: string): void {
+function renderRange(el: HTMLElement, text: string, ctx: InlineContext): void {
 	let i = 0;
 	while (i < text.length) {
-		const token = nextToken(text, i);
+		const token = nextToken(text, i, ctx);
 		if (!token) {
 			el.appendText(text.slice(i));
 			return;
@@ -67,13 +98,17 @@ function renderRange(el: HTMLElement, text: string): void {
 	}
 }
 
-export function renderInline(el: HTMLElement, text: string): void {
+/** Returns true when the title contained a formula, so the view knows to
+ *  re-measure once MathJax has flushed its stylesheet. */
+export function renderInline(el: HTMLElement, text: string): boolean {
 	el.empty();
 	if (text.trim() === "") {
 		el.createSpan({ cls: "mm-placeholder", text: "Empty" });
-		return;
+		return false;
 	}
-	renderRange(el, text);
+	const ctx: InlineContext = { sawMath: false };
+	renderRange(el, text, ctx);
+	return ctx.sawMath;
 }
 
 export interface NodeElementOptions {
@@ -91,6 +126,7 @@ export interface NodeElement {
 	toggle: HTMLElement | null;
 	badge: HTMLElement | null;
 	checkbox: HTMLElement | null;
+	hasMath: boolean;
 }
 
 function descendantCount(node: MindNode): number {
@@ -128,7 +164,7 @@ export function buildNodeElement(
 	}
 
 	const text = card.createDiv({ cls: "mm-text" });
-	renderInline(text, node.text);
+	const hasMath = renderInline(text, node.text);
 
 	let badge: HTMLElement | null = null;
 	if (opts.showBodyBadges && node.bodyRanges.length > 0) {
@@ -154,5 +190,5 @@ export function buildNodeElement(
 		}
 	}
 
-	return { el, card, text, toggle, badge, checkbox };
+	return { el, card, text, toggle, badge, checkbox, hasMath };
 }

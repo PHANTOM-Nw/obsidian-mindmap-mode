@@ -206,3 +206,51 @@ test("reported bounds contain every card plus padding", () => {
 	assert.equal(minX, OPTS.padding);
 	assert.equal(minY, OPTS.padding);
 });
+
+test("laying out the same tree twice gives the same result", () => {
+	// The view relies on this: when MathJax finishes flushing its stylesheet the
+	// cards are re-measured and re-placed without rebuilding any DOM, so a second
+	// pass over the same LayoutNode tree must not drift.
+	const root = build({
+		children: [
+			{ children: [leaf(240, 50), { children: [leaf(), leaf(90, 60)] }] },
+			leaf(),
+			{ children: [leaf(), leaf()] },
+			{ children: [leaf(300, 20)] },
+		],
+	});
+
+	const first = layoutTree(root, OPTS);
+	const snapshot = first.nodes.map((n) => ({
+		id: n.node.id,
+		x: n.x,
+		y: n.y,
+		width: n.width,
+		height: n.height,
+		side: n.side,
+		branch: n.branch,
+	}));
+
+	const second = layoutTree(root, OPTS);
+	assert.equal(second.width, first.width);
+	assert.equal(second.height, first.height);
+
+	const byId = new Map(second.nodes.map((n) => [n.node.id, n]));
+	assert.equal(byId.size, snapshot.length);
+	for (const before of snapshot) {
+		const after = byId.get(before.id);
+		assert.ok(after, `node ${before.id} disappeared on the second pass`);
+		assert.deepEqual(
+			{
+				id: after.node.id,
+				x: after.x,
+				y: after.y,
+				width: after.width,
+				height: after.height,
+				side: after.side,
+				branch: after.branch,
+			},
+			before,
+		);
+	}
+});

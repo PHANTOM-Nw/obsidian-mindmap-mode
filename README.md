@@ -13,6 +13,11 @@ Every edit you make on the map is written straight back into the original
   generated, copied, or written to a sidecar file.
 - **Your outline is the map.** Headings nest by level; nested bullets hang under
   the heading they belong to. What you already wrote is the structure.
+- **Opens folded.** A map starts at the root plus its top-level branches, each
+  toggle showing how many nodes are hiding behind it. Open one branch and you get
+  one more level, not the whole subtree.
+- **Formulas render.** `$\lambda$` and `$$\sum_{i=1}^{n} x_i$$` are typeset with
+  Obsidian's own MathJax. Prices like `$5 and $10` are left as prices.
 - **Edit on the canvas.** Rename, add, delete, indent, drag to reparent, fold,
   tick checkboxes — all of it rewrites the note in place.
 - **Nothing else is touched.** Frontmatter, fenced code, tables, HTML and links
@@ -50,6 +55,10 @@ reading.
 | `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
 | `Ctrl`/`Cmd`+`0` | Fit the map to the window |
 | Wheel / pinch | Zoom; drag blank space to pan |
+| Toolbar | Zoom, fit, centre, **expand all**, **collapse all**, shortcut help |
+
+**Collapse all** returns the map to the view it opened with, rather than hiding
+everything behind the root.
 
 Dragging across the heading/list boundary converts the moved block for you. Drop
 a heading onto a bullet and the whole subtree becomes nested bullets; drop a
@@ -120,7 +129,10 @@ nodes; that **no operation ever touches frontmatter**; and that every legal
 reparent across a rich fixture still round-trips with code content intact.
 
 Layout is covered too — cards are asserted never to overlap in deep, uneven
-trees, in both balanced and single-sided modes.
+trees, in both balanced and single-sided modes, and laying out the same tree
+twice is asserted to land in exactly the same place (the map re-measures without
+rebuilding once MathJax has flushed its stylesheet). The `$…$` delimiter rules
+live in their own dependency-free module so they can be tested the same way.
 
 ## Known limits
 
@@ -130,8 +142,14 @@ trees, in both balanced and single-sided modes.
 - The root node is the note's single top-level heading when it has one, and
   otherwise the file name. A file-name root cannot be renamed from the map,
   since that would mean renaming the file.
-- Fold state lives in memory for the session. It is deliberately not written to
-  the note, so the map never adds anything to your file.
+- Fold state lives in memory and is deliberately not written to the note, so the
+  map never adds anything to your file. The flip side is that it does not
+  survive: opening a different note, or toggling out to markdown and back,
+  re-folds the map to the root and its top-level branches.
+- Inline math uses a stricter `$…$` rule than Obsidian's reader — the body may
+  not begin or end on whitespace, and a closing `$` may not be followed by a
+  digit. That is what keeps `$5-$10` a price, at the cost of `$x$2` staying
+  literal.
 - Moving a checkbox item into heading position keeps `[x]` as literal text
   (headings cannot hold checkboxes). Moving it back restores a real checkbox.
 
@@ -140,7 +158,7 @@ trees, in both balanced and single-sided modes.
 ```
 src/model/     parser + mutation engine — pure functions, no Obsidian imports
 src/layout/    tidy-tree layout
-src/view/      canvas, cards, connectors, interactions, the TextFileView
+src/view/      canvas, cards, connectors, interactions, math, the TextFileView
 src/main.ts    plugin: view registration, the mode toggle, commands
 ```
 
