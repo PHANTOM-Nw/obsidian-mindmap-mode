@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24, not the 18 in Obsidian's sample workflow: the unit tests run the
+      # TypeScript sources directly through node --test, which needs Node's native
+      # type stripping (22.6+).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check version consistency
+        run: node scripts/check-version.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify the release assets exist
+        run: |
+          for file in main.js manifest.json styles.css; do
+            if [ ! -s "$file" ]; then
+              echo "::error::$file is missing or empty after the build"
+              exit 1
+            fi
+          done
+          echo "main.js is $(wc -c < main.js) bytes"
+
+      # Lets you install and test a branch without cutting a release: download
+      # the artifact and unzip it straight into <vault>/.obsidian/plugins/.
+      - name: Stage the plugin folder
+        run: |
+          mkdir -p dist/mindmap-mode
+          cp main.js manifest.json styles.css dist/mindmap-mode/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mindmap-mode-${{ github.sha }}
+          path: dist/mindmap-mode
+          if-no-files-found: error

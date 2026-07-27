@@ -1,0 +1,15 @@
+node_modules/
+main.js
+main.js.map
+*.log
+
+# Build/release staging produced by CI
+dist/
+release-notes.md
+*.zip
+
+# Obsidian workspace state inside the bundled test vault
+test-vault/.obsidian/workspace.json
+test-vault/.obsidian/workspace-mobile.json
+test-vault/.obsidian/plugins/
+test-vault/.trash/

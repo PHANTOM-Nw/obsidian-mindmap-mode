@@ -1,0 +1,9 @@
+{
+  "id": "mindmap-mode",
+  "name": "Mindmap Mode",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Toggle any note into an editable, xmind-style mind map in the same tab. Every edit writes straight back to the original note — no new files are ever created.",
+  "author": "calvin",
+  "isDesktopOnly": false
+}

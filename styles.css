@@ -1,0 +1,431 @@
+/* ==========================================================================
+   Mindmap Mode
+   Everything is driven by Obsidian's own CSS variables so the map follows the
+   active theme, light or dark, without a second palette to maintain.
+   ========================================================================== */
+
+.mindmap-mode {
+	--mm-b0: #4f9df7;
+	--mm-b1: #f2994a;
+	--mm-b2: #56c271;
+	--mm-b3: #b57bee;
+	--mm-b4: #ef6b8a;
+	--mm-b5: #38b6c4;
+	--mm-b6: #d9a91f;
+	--mm-b7: #7c8cf8;
+	--mm-b8: #d2698f;
+	--mm-b9: #5aa98a;
+
+	--mm-branch: var(--interactive-accent);
+	--mm-card-radius: 8px;
+
+	position: relative;
+	padding: 0;
+	overflow: hidden;
+	height: 100%;
+}
+
+/* --- viewport ------------------------------------------------------------ */
+
+.mm-viewport {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	outline: none;
+	cursor: default;
+	touch-action: none;
+	background: var(--background-primary);
+	background-image: radial-gradient(
+		circle at 1px 1px,
+		var(--background-modifier-border) 1px,
+		transparent 0
+	);
+	background-size: 28px 28px;
+}
+
+.mm-viewport.is-panning {
+	cursor: grabbing;
+}
+
+.mm-viewport.is-dragging-node {
+	cursor: grabbing;
+}
+
+.mm-content {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
+	will-change: transform;
+}
+
+.mm-edges {
+	position: absolute;
+	top: 0;
+	left: 0;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.mm-nodes {
+	position: absolute;
+	top: 0;
+	left: 0;
+}
+
+/* --- connectors ---------------------------------------------------------- */
+
+.mm-edge {
+	stroke: var(--background-modifier-border-hover);
+	opacity: 0.85;
+}
+
+.mm-edge[data-branch="0"] { stroke: var(--mm-b0); }
+.mm-edge[data-branch="1"] { stroke: var(--mm-b1); }
+.mm-edge[data-branch="2"] { stroke: var(--mm-b2); }
+.mm-edge[data-branch="3"] { stroke: var(--mm-b3); }
+.mm-edge[data-branch="4"] { stroke: var(--mm-b4); }
+.mm-edge[data-branch="5"] { stroke: var(--mm-b5); }
+.mm-edge[data-branch="6"] { stroke: var(--mm-b6); }
+.mm-edge[data-branch="7"] { stroke: var(--mm-b7); }
+.mm-edge[data-branch="8"] { stroke: var(--mm-b8); }
+.mm-edge[data-branch="9"] { stroke: var(--mm-b9); }
+
+/* --- nodes --------------------------------------------------------------- */
+
+.mm-node {
+	position: absolute;
+	top: 0;
+	left: 0;
+	will-change: transform;
+}
+
+.mm-node[data-branch="0"] { --mm-branch: var(--mm-b0); }
+.mm-node[data-branch="1"] { --mm-branch: var(--mm-b1); }
+.mm-node[data-branch="2"] { --mm-branch: var(--mm-b2); }
+.mm-node[data-branch="3"] { --mm-branch: var(--mm-b3); }
+.mm-node[data-branch="4"] { --mm-branch: var(--mm-b4); }
+.mm-node[data-branch="5"] { --mm-branch: var(--mm-b5); }
+.mm-node[data-branch="6"] { --mm-branch: var(--mm-b6); }
+.mm-node[data-branch="7"] { --mm-branch: var(--mm-b7); }
+.mm-node[data-branch="8"] { --mm-branch: var(--mm-b8); }
+.mm-node[data-branch="9"] { --mm-branch: var(--mm-b9); }
+
+.mm-card {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	padding: 6px 12px;
+	border-radius: var(--mm-card-radius);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	line-height: 1.45;
+	cursor: grab;
+	user-select: none;
+	transition:
+		box-shadow 120ms ease,
+		border-color 120ms ease;
+}
+
+.mm-card:hover {
+	border-color: var(--mm-branch);
+}
+
+/* The root reads as the anchor of the whole map. */
+.mm-node[data-depth="0"] .mm-card {
+	padding: 10px 20px;
+	border-radius: 999px;
+	border: none;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+	box-shadow: 0 2px 10px rgb(0 0 0 / 18%);
+}
+
+/* First-level branches carry their branch colour. */
+.mm-node[data-depth="1"] .mm-card {
+	border: 1.5px solid var(--mm-branch);
+	background: color-mix(in srgb, var(--mm-branch) 12%, var(--background-primary));
+	font-weight: 550;
+}
+
+/* Deeper topics sit on the line, XMind style, rather than in a heavy box. */
+.mm-node:not([data-depth="0"]):not([data-depth="1"]) .mm-card {
+	background: transparent;
+	border: none;
+	border-bottom: 2px solid color-mix(in srgb, var(--mm-branch) 55%, transparent);
+	border-radius: 4px 4px 0 0;
+	padding: 3px 8px;
+}
+
+.mm-node:not([data-depth="0"]):not([data-depth="1"]) .mm-card:hover {
+	background: var(--background-modifier-hover);
+	border-bottom-color: var(--mm-branch);
+}
+
+.mm-node.is-selected .mm-card {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.mm-node.is-dragging {
+	opacity: 0.45;
+	pointer-events: none;
+}
+
+.mm-node.is-drop-target .mm-card {
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+	background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
+}
+
+.mm-node.is-drop-invalid .mm-card {
+	box-shadow: 0 0 0 2px var(--text-error);
+	cursor: not-allowed;
+}
+
+.mm-text {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	min-width: 1ch;
+}
+
+.mm-text.is-editing {
+	outline: none;
+	cursor: text;
+	user-select: text;
+	min-width: 4ch;
+	box-shadow: 0 1px 0 0 var(--interactive-accent);
+}
+
+.mm-placeholder {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+.mm-text .mm-code {
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	padding: 0 4px;
+	border-radius: 3px;
+	background: var(--background-modifier-border);
+}
+
+.mm-text .mm-link {
+	color: var(--link-color);
+	text-decoration: underline;
+	text-decoration-style: dotted;
+}
+
+.mm-text .mm-embed {
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+/* --- checkbox ------------------------------------------------------------ */
+
+.mm-checkbox {
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+	margin-top: 2px;
+	border: 1.5px solid var(--text-muted);
+	border-radius: 3px;
+	cursor: pointer;
+	align-self: center;
+	position: relative;
+}
+
+.mm-checkbox[data-checked="true"] {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+}
+
+.mm-checkbox[data-checked="true"]::after {
+	content: "";
+	position: absolute;
+	left: 4px;
+	top: 1px;
+	width: 3px;
+	height: 7px;
+	border: solid var(--text-on-accent);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+.mm-card.is-checked .mm-text {
+	color: var(--text-muted);
+	text-decoration: line-through;
+}
+
+/* --- body badge ---------------------------------------------------------- */
+
+.mm-badge {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	align-self: center;
+	padding: 1px 5px;
+	border-radius: 4px;
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: 10px;
+	line-height: 1.4;
+	cursor: pointer;
+}
+
+.mm-badge:hover {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.mm-badge-count {
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- fold toggle --------------------------------------------------------- */
+
+.mm-toggle {
+	position: absolute;
+	top: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 3px;
+	border-radius: 999px;
+	border: 1.5px solid var(--mm-branch);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 9px;
+	line-height: 1;
+	cursor: pointer;
+	transform: translateY(-50%);
+}
+
+.mm-node[data-side="right"] .mm-toggle {
+	right: -9px;
+	transform: translate(100%, -50%);
+}
+
+.mm-node[data-side="left"] .mm-toggle {
+	left: -9px;
+	transform: translate(-100%, -50%);
+}
+
+.mm-toggle:hover {
+	background: var(--mm-branch);
+	color: var(--text-on-accent);
+}
+
+/* An expanded node shows a small dash instead of a count. */
+.mm-toggle.is-open::after {
+	content: "";
+	width: 6px;
+	height: 1.5px;
+	background: currentColor;
+	border-radius: 1px;
+}
+
+/* --- toolbar ------------------------------------------------------------- */
+
+.mm-toolbar {
+	position: absolute;
+	right: 12px;
+	bottom: 12px;
+	z-index: 10;
+	display: flex;
+	gap: 2px;
+	padding: 3px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+.mm-tool {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 6px;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.mm-tool:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+/* --- popovers ------------------------------------------------------------ */
+
+.mm-popover {
+	position: absolute;
+	z-index: 20;
+	max-width: min(420px, 90%);
+	max-height: 70%;
+	overflow: auto;
+	padding: 14px 16px;
+	border-radius: 10px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: 0 8px 30px rgb(0 0 0 / 24%);
+}
+
+.mm-popover h4 {
+	margin: 0 0 6px;
+}
+
+.mm-popover-hint {
+	margin: 0 0 10px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.mm-body-block {
+	margin-bottom: 10px;
+}
+
+.mm-body-lines {
+	margin-bottom: 3px;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+}
+
+.mm-body-input {
+	width: 100%;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	resize: vertical;
+	white-space: pre;
+}
+
+.mm-popover-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+.mm-shortcuts table {
+	border-collapse: collapse;
+	font-size: var(--font-ui-smaller);
+}
+
+.mm-shortcuts td {
+	padding: 3px 10px 3px 0;
+	vertical-align: top;
+}
+
+.mm-shortcuts .mm-keys {
+	white-space: nowrap;
+	color: var(--text-accent);
+	font-family: var(--font-monospace);
+}

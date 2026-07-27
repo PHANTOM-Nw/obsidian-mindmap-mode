@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags: ["*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish a draft release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Runs before anything expensive. Obsidian resolves a plugin by fetching
+      # assets from the release tagged exactly as manifest.json's version, so a
+      # mismatched or "v"-prefixed tag must fail loudly here rather than produce
+      # a release that quietly refuses to install.
+      - name: Check the tag matches the manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/check-version.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify the release assets exist
+        run: |
+          for file in main.js manifest.json styles.css; do
+            if [ ! -s "$file" ]; then
+              echo "::error::$file is missing or empty after the build"
+              exit 1
+            fi
+          done
+
+      - name: Package a convenience zip
+        run: |
+          mkdir -p dist/mindmap-mode
+          cp main.js manifest.json styles.css dist/mindmap-mode/
+          (cd dist && zip -r mindmap-mode.zip mindmap-mode)
+
+      - name: Write release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<EOF
+          ## Install
+
+          **Manual:** download \`main.js\`, \`manifest.json\` and \`styles.css\` below into
+
+          \`\`\`
+          <your vault>/.obsidian/plugins/mindmap-mode/
+          \`\`\`
+
+          then enable **Mindmap Mode** in *Settings → Community plugins*.
+          (Or download \`mindmap-mode.zip\` and unzip it into \`.obsidian/plugins/\`.)
+
+          **BRAT:** add \`$REPO\` as a beta plugin.
+
+          ## Use it
+
+          Open a note and run **Toggle mind map view** from the command palette —
+          assign it a hotkey to make it feel like switching reading mode. The map
+          opens in the same tab, on the same file. No files are ever created.
+
+          Built from \`$TAG\` with tests and typecheck passing.
+          EOF
+
+      - name: Create the draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --draft \
+            main.js manifest.json styles.css dist/mindmap-mode.zip
+
+      - name: Summary
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "### Draft release \`$TAG\` is ready"
+            echo ""
+            echo "Review and publish it at https://github.com/$REPO/releases"
+          } >> "$GITHUB_STEP_SUMMARY"

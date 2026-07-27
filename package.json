@@ -1,0 +1,31 @@
+{
+  "name": "obsidian-mindmap-mode",
+  "version": "1.0.0",
+  "description": "Toggle any note into an editable xmind-style mind map, in place, without ever creating a file.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "check-version": "node scripts/check-version.mjs",
+    "check": "npm run check-version && npm run typecheck && npm test && npm run build",
+    "version": "node version-bump.mjs && git add manifest.json versions.json"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "mindmap",
+    "xmind"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "builtin-modules": "^5.3.0",
+    "esbuild": "^0.28.1",
+    "obsidian": "^1.13.1",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.3"
+  }
+}
