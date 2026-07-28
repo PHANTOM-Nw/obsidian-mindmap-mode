@@ -311,9 +311,6 @@ export class MindmapView extends TextFileView implements MapController {
 			tr.createEl("td", { cls: "mm-keys", text: keys });
 			tr.createEl("td", { text: what });
 		}
-		panel.style.left = "50%";
-		panel.style.top = "50%";
-		panel.style.transform = "translate(-50%, -50%)";
 	}
 
 	// --- rendering ------------------------------------------------------------

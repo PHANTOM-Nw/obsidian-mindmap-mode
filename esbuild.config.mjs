@@ -1,6 +1,8 @@
 import esbuild from "esbuild";
 import process from "node:process";
-import builtins from "builtin-modules";
+// Node's own list, rather than the `builtin-modules` package: one less
+// dependency, and it cannot fall behind the runtime it is describing.
+import { builtinModules } from "node:module";
 
 const banner = `/*
 Mindmap Mode — https://github.com/PHANTOM-Nw/obsidian-mindmap-mode
@@ -30,7 +32,8 @@ const context = await esbuild.context({
     "@lezer/common",
     "@lezer/highlight",
     "@lezer/lr",
-    ...builtins,
+    ...builtinModules,
+    ...builtinModules.map((name) => `node:${name}`),
   ],
   format: "cjs",
   target: "es2018",

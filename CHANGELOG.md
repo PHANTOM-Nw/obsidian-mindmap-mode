@@ -11,6 +11,16 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.0.4] - 2026-07-28
+
+### 新增 / Added
+
+- 设置项现在会出现在 Obsidian 1.13 及以上版本的设置搜索结果里。1.13 以下的版本设置页照旧，不受影响。<br>Settings now turn up in the settings search on Obsidian 1.13 and later. On older versions the settings tab is unchanged.
+
+### 变更 / Changed
+
+- 发布资产不再附带 zip 包 —— Obsidian 从来不会下载它。`main.js` 和 `styles.css` 现在带 GitHub 构建来源证明，任何人都可以验证它们确实由本仓库构建。<br>Releases no longer carry a zip, which Obsidian never downloaded anyway. `main.js` and `styles.css` now ship with GitHub build provenance, so anyone can verify they came out of this repository.
+
 ## [1.0.3] - 2026-07-28
 
 ### 变更 / Changed

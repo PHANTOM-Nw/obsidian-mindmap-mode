@@ -1,5 +1,5 @@
 import { PluginSettingTab, Setting } from "obsidian";
-import type { App } from "obsidian";
+import type { App, SettingDefinitionControl, SettingDefinitionItem } from "obsidian";
 import type { NodeSource, RootPolicy } from "./model/types.ts";
 import type MindmapPlugin from "./main.ts";
 
@@ -36,7 +36,8 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	addHeaderButton: true,
 };
 
-export function resolveIndentUnit(settings: MindmapSettings): string | "auto" {
+/** Returns the literal indent string, or the sentinel `"auto"`. */
+export function resolveIndentUnit(settings: MindmapSettings): string {
 	switch (settings.indentUnit) {
 		case "two":
 			return "  ";
@@ -49,6 +50,138 @@ export function resolveIndentUnit(settings: MindmapSettings): string | "auto" {
 	}
 }
 
+type SettingKey = keyof MindmapSettings;
+
+/** The one setting that redraws the note header rather than the open maps. */
+const HEADER_BUTTON_KEY: SettingKey = "addHeaderButton";
+
+interface SettingGroup {
+	heading: string;
+	items: SettingDefinitionControl<SettingKey>[];
+}
+
+/**
+ * Every setting, declared once.
+ *
+ * Obsidian 1.13 renders a settings tab from `getSettingDefinitions()` and skips
+ * `display()` entirely when it returns something; older versions know only
+ * `display()`. Both paths below read this array, so the two renderings cannot
+ * drift, and `minAppVersion` stays at 1.5.0 while 1.13 users still get their
+ * settings indexed for search.
+ */
+const GROUPS: SettingGroup[] = [
+	{
+		heading: "Structure",
+		items: [
+			{
+				name: "Nodes come from",
+				desc: "Which markdown structures become cards on the map.",
+				control: {
+					type: "dropdown",
+					key: "source",
+					options: {
+						"headings-and-lists": "Headings and list items",
+						"headings-only": "Headings only",
+						"lists-only": "List items only",
+					},
+				},
+			},
+			{
+				name: "Deepest heading level",
+				desc: "Headings below this level stay in the note as body content.",
+				control: { type: "slider", key: "maxHeadingDepth", min: 1, max: 6, step: 1 },
+			},
+			{
+				name: "Root node",
+				desc: "Auto uses a lone top-level heading when the note has one, and the file name otherwise.",
+				control: {
+					type: "dropdown",
+					key: "rootPolicy",
+					options: {
+						auto: "Auto",
+						filename: "Always the file name",
+						h1: "Always the first H1",
+					},
+				},
+			},
+			{
+				name: "Indent for new list items",
+				desc: "Auto copies whatever the note already uses.",
+				control: {
+					type: "dropdown",
+					key: "indentUnit",
+					options: {
+						auto: "Auto-detect",
+						two: "Two spaces",
+						four: "Four spaces",
+						tab: "Tab",
+					},
+				},
+			},
+		],
+	},
+	{
+		heading: "Appearance",
+		items: [
+			{
+				name: "Layout",
+				desc: "Balanced splits top-level branches to both sides of the root.",
+				control: {
+					type: "dropdown",
+					key: "layout",
+					options: {
+						balanced: "Balanced (both sides)",
+						right: "Single side (right)",
+					},
+				},
+			},
+			{
+				name: "Colour branches",
+				desc: "Give each top-level branch its own colour.",
+				control: { type: "toggle", key: "branchColors" },
+			},
+			{
+				name: "Show note content",
+				desc: "Paragraphs, code blocks and tables become their own cards, so they fold and unfold with the branch they belong to. Use the expand button on a card to see the whole block rendered, or double-click it to edit.",
+				control: { type: "toggle", key: "showBodyNodes" },
+			},
+			{
+				name: "Maximum card width",
+				control: { type: "slider", key: "maxNodeWidth", min: 140, max: 520, step: 20 },
+			},
+			{
+				name: "Horizontal spacing",
+				control: { type: "slider", key: "horizontalGap", min: 24, max: 160, step: 4 },
+			},
+			{
+				name: "Vertical spacing",
+				control: { type: "slider", key: "verticalGap", min: 4, max: 60, step: 2 },
+			},
+		],
+	},
+	{
+		heading: "Behaviour",
+		items: [
+			{
+				name: "Mouse wheel",
+				control: {
+					type: "dropdown",
+					key: "wheel",
+					options: {
+						zoom: "Zooms (hold Shift to pan)",
+						pan: "Pans (hold Ctrl to zoom)",
+					},
+				},
+			},
+			{
+				name: "Button in the note header",
+				desc: "Adds a mind map toggle beside the other view actions. The command and ribbon icon work either way.",
+				control: { type: "toggle", key: HEADER_BUTTON_KEY },
+			},
+		],
+	},
+];
+
 export class MindmapSettingTab extends PluginSettingTab {
 	private readonly plugin: MindmapPlugin;
 
@@ -57,182 +190,95 @@ export class MindmapSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	// --- Obsidian 1.13 and later ------------------------------------------------
+
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		return GROUPS.map((group) => ({
+			type: "group" as const,
+			heading: group.heading,
+			items: group.items,
+		}));
+	}
+
+	/** The base class has already written and persisted the value. */
+	override async setControlValue(key: string, value: unknown): Promise<void> {
+		await super.setControlValue(key, value);
+		this.applySideEffects(key);
+	}
+
+	// --- Obsidian 1.12 and earlier ----------------------------------------------
+
 	override display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		const save = async (): Promise<void> => {
+		for (const group of GROUPS) {
+			new Setting(containerEl).setName(group.heading).setHeading();
+			for (const item of group.items) this.renderItem(containerEl, item);
+		}
+	}
+
+	private renderItem(
+		containerEl: HTMLElement,
+		item: SettingDefinitionControl<SettingKey>,
+	): void {
+		const setting = new Setting(containerEl).setName(item.name);
+		if (typeof item.desc === "string") setting.setDesc(item.desc);
+
+		const control = item.control;
+		const commit = async (value: string | number | boolean): Promise<void> => {
+			this.write(control.key, value);
 			await this.plugin.saveSettings();
-			this.plugin.refreshAllViews();
+			this.applySideEffects(control.key);
 		};
 
-		new Setting(containerEl).setName("Structure").setHeading();
+		switch (control.type) {
+			case "dropdown":
+				setting.addDropdown((d) =>
+					d
+						.addOptions(control.options)
+						.setValue(String(this.read(control.key)))
+						.onChange(commit),
+				);
+				break;
+			case "toggle":
+				setting.addToggle((t) => t.setValue(this.read(control.key) === true).onChange(commit));
+				break;
+			case "slider":
+				setting.addSlider((s) =>
+					s
+						.setLimits(control.min, control.max, control.step)
+						.setValue(Number(this.read(control.key)))
+						.onChange(commit),
+				);
+				break;
+			default:
+				// No other control type appears in GROUPS.
+				break;
+		}
+	}
 
-		new Setting(containerEl)
-			.setName("Nodes come from")
-			.setDesc("Which markdown structures become cards on the map.")
-			.addDropdown((d) =>
-				d
-					.addOption("headings-and-lists", "Headings and list items")
-					.addOption("headings-only", "Headings only")
-					.addOption("lists-only", "List items only")
-					.setValue(this.plugin.settings.source)
-					.onChange(async (value) => {
-						this.plugin.settings.source = value as NodeSource;
-						await save();
-					}),
-			);
+	// --- shared ------------------------------------------------------------------
 
-		new Setting(containerEl)
-			.setName("Deepest heading level")
-			.setDesc("Headings below this level stay in the note as body content.")
-			.addSlider((s) =>
-				s
-					.setLimits(1, 6, 1)
-					.setDynamicTooltip()
-					.setValue(this.plugin.settings.maxHeadingDepth)
-					.onChange(async (value) => {
-						this.plugin.settings.maxHeadingDepth = value;
-						await save();
-					}),
-			);
+	private applySideEffects(key: string): void {
+		if (key === HEADER_BUTTON_KEY) this.plugin.refreshHeaderButtons();
+		else this.plugin.refreshAllViews();
+	}
 
-		new Setting(containerEl)
-			.setName("Root node")
-			.setDesc(
-				"Auto uses a lone top-level heading when the note has one, and the file name otherwise.",
-			)
-			.addDropdown((d) =>
-				d
-					.addOption("auto", "Auto")
-					.addOption("filename", "Always the file name")
-					.addOption("h1", "Always the first H1")
-					.setValue(this.plugin.settings.rootPolicy)
-					.onChange(async (value) => {
-						this.plugin.settings.rootPolicy = value as RootPolicy;
-						await save();
-					}),
-			);
+	/**
+	 * Each key is paired with a control whose value type matches it, but the
+	 * pairing lives in the definitions rather than in the type, so the settings
+	 * object is indexed as a bag of unknowns here and nowhere else.
+	 */
+	private get store(): Record<string, unknown> {
+		return this.plugin.settings as unknown as Record<string, unknown>;
+	}
 
-		new Setting(containerEl)
-			.setName("Indent for new list items")
-			.setDesc("Auto copies whatever the note already uses.")
-			.addDropdown((d) =>
-				d
-					.addOption("auto", "Auto-detect")
-					.addOption("two", "Two spaces")
-					.addOption("four", "Four spaces")
-					.addOption("tab", "Tab")
-					.setValue(this.plugin.settings.indentUnit)
-					.onChange(async (value) => {
-						this.plugin.settings.indentUnit = value as MindmapSettings["indentUnit"];
-						await save();
-					}),
-			);
+	private read(key: SettingKey): unknown {
+		return this.store[key];
+	}
 
-		new Setting(containerEl).setName("Appearance").setHeading();
-
-		new Setting(containerEl)
-			.setName("Layout")
-			.setDesc("Balanced splits top-level branches to both sides of the root.")
-			.addDropdown((d) =>
-				d
-					.addOption("balanced", "Balanced (both sides)")
-					.addOption("right", "Single side (right)")
-					.setValue(this.plugin.settings.layout)
-					.onChange(async (value) => {
-						this.plugin.settings.layout = value as LayoutMode;
-						await save();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Colour branches")
-			.setDesc("Give each top-level branch its own colour.")
-			.addToggle((t) =>
-				t.setValue(this.plugin.settings.branchColors).onChange(async (value) => {
-					this.plugin.settings.branchColors = value;
-					await save();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Show note content")
-			.setDesc(
-				"Paragraphs, code blocks and tables become their own cards, so they fold and unfold with the branch they belong to. Use the expand button on a card to see the whole block rendered, or double-click it to edit.",
-			)
-			.addToggle((t) =>
-				t.setValue(this.plugin.settings.showBodyNodes).onChange(async (value) => {
-					this.plugin.settings.showBodyNodes = value;
-					await save();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Maximum card width")
-			.addSlider((s) =>
-				s
-					.setLimits(140, 520, 20)
-					.setDynamicTooltip()
-					.setValue(this.plugin.settings.maxNodeWidth)
-					.onChange(async (value) => {
-						this.plugin.settings.maxNodeWidth = value;
-						await save();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Horizontal spacing")
-			.addSlider((s) =>
-				s
-					.setLimits(24, 160, 4)
-					.setDynamicTooltip()
-					.setValue(this.plugin.settings.horizontalGap)
-					.onChange(async (value) => {
-						this.plugin.settings.horizontalGap = value;
-						await save();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Vertical spacing")
-			.addSlider((s) =>
-				s
-					.setLimits(4, 60, 2)
-					.setDynamicTooltip()
-					.setValue(this.plugin.settings.verticalGap)
-					.onChange(async (value) => {
-						this.plugin.settings.verticalGap = value;
-						await save();
-					}),
-			);
-
-		new Setting(containerEl).setName("Behaviour").setHeading();
-
-		new Setting(containerEl)
-			.setName("Mouse wheel")
-			.addDropdown((d) =>
-				d
-					.addOption("zoom", "Zooms (hold Shift to pan)")
-					.addOption("pan", "Pans (hold Ctrl to zoom)")
-					.setValue(this.plugin.settings.wheel)
-					.onChange(async (value) => {
-						this.plugin.settings.wheel = value as WheelMode;
-						await save();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Button in the note header")
-			.setDesc(
-				"Adds a mind map toggle beside the other view actions. The command and ribbon icon work either way.",
-			)
-			.addToggle((t) =>
-				t.setValue(this.plugin.settings.addHeaderButton).onChange(async (value) => {
-					this.plugin.settings.addHeaderButton = value;
-					await this.plugin.saveSettings();
-					this.plugin.refreshHeaderButtons();
-				}),
-			);
+	private write(key: SettingKey, value: string | number | boolean): void {
+		this.store[key] = value;
 	}
 }

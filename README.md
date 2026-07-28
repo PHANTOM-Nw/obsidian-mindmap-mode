@@ -1,145 +1,211 @@
 # Mindmap Mode
 
-*[English](README.en.md)*
+*[中文说明](README.zh.md)*
 
-把任意 Obsidian 笔记切换成可编辑的放射状思维导图 —— 就像切到阅读模式一样。同一个标签页、同一个文件，**从不生成任何新文件**。
+Turn any Obsidian note into an editable, radial mind map — the same way you
+switch to reading mode. Same tab, same file, **no new files ever created**.
 
-你在图上做的每一次修改，都会以最小的行级编辑写回原来的 `.md` 笔记。切回去，你的笔记还是你的笔记。
+Every edit you make on the map is written straight back into the original
+`.md` note as a minimal line edit. Toggle back and your note is still your note.
 
-画布的操作手感接近 XMind、MindNode 这类桌面思维导图工具，但数据自始至终就是你那份 markdown 笔记本身。
+The canvas handles much like a desktop mind-mapping tool such as XMind or
+MindNode, except the data never stops being your markdown note.
 
-## 它做什么
+## What it does
 
-- **是一种视图模式，不是导出。** 切换只是把当前 leaf 的视图类型换掉，同一个 `TFile` 仍然开在同一个标签页里。不生成、不复制、不写任何附属文件。
-- **你的大纲就是导图。** 标题按层级嵌套，缩进的列表挂在它所属的标题下面。你已经写好的内容本身就是结构。
-- **打开时是折叠的。** 进入时只显示根节点和一级分支，每个折叠按钮上标着背后藏了多少节点。展开一个分支只会多出一层，不会把整棵子树摊开。
-- **公式会渲染。** `$\lambda$` 和 `$$\sum_{i=1}^{n} x_i$$` 交给 Obsidian 自带的 MathJax 排版。而 `$5 and $10` 这样的价格仍然是价格。
-- **在画布上直接编辑。** 重命名、新增、删除、缩进、拖拽改父级、拖拽调顺序、折叠、勾选复选框 —— 每一项都就地改写笔记。
-- **其他一概不动。** frontmatter、围栏代码块、表格、HTML 和链接永远不会被重新格式化。你没有编辑过的行会逐字节原样返回，包括 CRLF 换行。
+- **A view mode, not an export.** Toggling swaps the view type on the leaf you
+  are already in, so the same `TFile` stays open in the same tab. Nothing is
+  generated, copied, or written to a sidecar file.
+- **Your outline is the map.** Headings nest by level; nested bullets hang under
+  the heading they belong to. What you already wrote is the structure.
+- **Opens folded.** A map starts at the root plus its top-level branches, each
+  toggle showing how many nodes are hiding behind it. Open one branch and you get
+  one more level, not the whole subtree.
+- **Formulas render.** `$\lambda$` and `$$\sum_{i=1}^{n} x_i$$` are typeset with
+  Obsidian's own MathJax. Prices like `$5 and $10` are left as prices.
+- **Edit on the canvas.** Rename, add, delete, indent, drag to reparent, drag to
+  reorder, fold, tick checkboxes — all of it rewrites the note in place.
+- **Nothing else is touched.** Frontmatter, fenced code, tables, HTML and links
+  are never reformatted. Lines you did not edit come back byte-for-byte
+  identical, including CRLF endings.
 
-## 切换到导图
+## Switching to the map
 
-对当前已经打开的笔记，下面任意一种方式都行：
+Any of these work, on the note you already have open:
 
-| 位置 | 方式 |
+| Where | How |
 | --- | --- |
-| 命令面板 | **Toggle mind map view**（建议绑个快捷键，用起来就跟原生一样） |
-| 笔记标题栏 | 其他视图按钮旁边的分支图标 |
-| 左侧边栏 | 侧边栏里的分支图标 |
-| 右键菜单 | 右键笔记 → **Open as mind map** |
+| Command palette | **Toggle mind map view** (assign a hotkey to make it feel native) |
+| Note header | The branch icon beside the other view actions |
+| Ribbon | The branch icon in the left sidebar |
+| Context menu | Right-click the note → **Open as mind map** |
 
-切回去时会回到你原来所在的 markdown 模式 —— 源码模式或阅读模式。
+Toggling back returns you to whichever markdown mode you came from — source or
+reading.
 
-## 在导图上编辑
+## Editing on the map
 
-| 操作 | 效果 |
+| Input | Action |
 | --- | --- |
-| 双击 / `F2` | 就地编辑节点文字 |
-| 内容卡片角上的 **⤢** | 展开整块内容并完整渲染 |
-| 点击内容卡片里的链接 | 打开它（笔记、标题、PDF、附件、网址都行） |
-| 卡片外侧的 **+** | 新建子节点 |
-| 右键卡片 | 该节点的菜单：新建子节点 / 新建同级（上方、下方）/ 折叠 / 重命名 / 删除 |
-| `Enter` | 新建同级节点 |
-| `Tab` | 新建子节点 |
-| `Shift`+`Tab` | 升级（outdent） |
-| `]` | 降级到前一个同级节点下面 |
-| `Delete` | 删除节点及其所有子节点 |
-| `Space` | 折叠 / 展开 |
-| 方向键 | 移动选中项 |
-| 把一张卡片拖到另一张上 | 改变父级 |
-| 拖到一张卡片的上 / 下边缘 | 插到它前面 / 后面，成为它的同级 |
-| `Ctrl`/`Cmd`+`Enter` | 循环切换复选框：无 → `[ ]` → `[x]` → 无 |
-| `Ctrl`/`Cmd`+`Z` | 撤销（加 `Shift` 重做） |
-| `Ctrl`/`Cmd`+`0` | 缩放到适应窗口 |
-| 滚轮 / 双指捏合 | 缩放；拖拽空白处平移 |
-| 工具栏 | 放大、缩小、适应窗口、居中、**全部展开**、**全部折叠**、快捷键帮助 |
+| Double-click / `F2` | Edit the node text inline |
+| **⤢** on a content card | Show the whole block, rendered |
+| Click a link in a content card | Open it — note, heading, PDF, attachment or web address |
+| **+** beside a card | New child |
+| Right-click a card | The node's menu: add a child, add a sibling above or below, fold, rename, delete |
+| `Enter` | New sibling |
+| `Tab` | New child |
+| `Shift`+`Tab` | Outdent |
+| `]` | Indent under the previous sibling |
+| `Delete` | Delete the node and its children |
+| `Space` | Fold / unfold |
+| Arrow keys | Move the selection |
+| Drag a card onto another | Reparent it |
+| Drag onto a card's top / bottom edge | Drop it in beside that card, above or below |
+| `Ctrl`/`Cmd`+`Enter` | Cycle the checkbox: none → `[ ]` → `[x]` → none |
+| `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
+| `Ctrl`/`Cmd`+`0` | Fit the map to the window |
+| Wheel / pinch | Zoom; drag blank space to pan |
+| Toolbar | Zoom, fit, centre, **expand all**, **collapse all**, shortcut help |
 
-**全部折叠**会回到刚打开时的视图，而不是把所有东西都藏进根节点。
+**Collapse all** returns the map to the view it opened with, rather than hiding
+everything behind the root.
 
-跨越"标题 / 列表"边界拖拽时，被移动的块会自动转换：把一个标题拖到列表项上，整棵子树变成嵌套列表；把一个列表项拖到标题上，它变成顶级列表。复选框状态在往返过程中不会丢。落到某个节点旁边时同理 —— 它会写成目标那样的形态，因为一个列表项写在标题后面就成了那个标题的内容，而不是它的同级。
+Dragging across the heading/list boundary converts the moved block for you. Drop
+a heading onto a bullet and the whole subtree becomes nested bullets; drop a
+bullet onto a heading and it becomes a top-level list. Checkbox state survives
+the round trip. Dropping *beside* a node works the same way: the block is
+written the way that node is written, because a bullet placed after a heading is
+that heading's content rather than its sibling.
 
-一级分支不参与拖拽排序：它们由布局按各自的体量动态分到根节点的左右两侧，顺序归布局管。拖到一级卡片上仍然是改变父级，整张卡都是如此。第二级往下则按文件里的先后自上而下排列，拖到边缘就能改这个顺序。
+Top-level branches are not reordered by dragging. The layout splits them between
+the two sides of the root by weight, so their order is its to decide — a drop
+anywhere on a top-level card reparents, as it always has. From the second level
+down, siblings run top to bottom in file order, and the edge of a card is where
+you change it.
 
-### 段落、代码块和表格
+### Paragraphs, code blocks and tables
 
-不是标题也不是列表项的内容，会原封不动留在笔记里的原位置 —— 但它们会作为自己的卡片出现在导图上，跟所属分支一起折叠和展开，按在文件中的先后顺序穿插在同级节点之间。代码块和表格保持等宽字体和原有换行，段落则按正常字体排版（公式一样会渲染）。
+Content that is not a heading or a list item stays exactly where it is in the
+note — and gets its own card on the map, folding and unfolding with the branch
+it belongs to, interleaved with its siblings in file order. Code blocks and
+tables keep a monospace face and their own line breaks; prose is set in the
+reading face, formulas included.
 
-卡片上看到的只是预览：内容很长时会被截断，而导图自己的渲染器只认行内语法。点卡片角上的 **⤢** 按钮，就能在弹出的对话框里看到整块内容，并且由 Obsidian 自己渲染 —— 行间公式、表格、代码高亮、callout 都和阅读视图里一模一样。在那个对话框里切到 **Source**（或者直接双击卡片）即可编辑这一段，保存只会改写那几行。
+A card is only a preview: long blocks are clipped on the map, and the map's own
+renderer is a small inline one. The **⤢** button in a content card's corner opens
+the block whole, rendered by Obsidian itself — display formulas, tables, code
+highlighting and callouts all look the way they do in reading view. Switch that
+dialog to **Source** (or double-click the card) to edit the block; saving
+rewrites only those lines.
 
-内容卡片不能被重命名、拖拽或删除 —— 那几行归笔记所有，导图只是把它们显示出来。
+Content cards cannot be renamed, dragged or deleted — those lines belong to the
+note, and the map is only showing them.
 
-如果你不想在图上看到它们，在设置里关掉 **Show note content** 即可。
+Turn **Show note content** off in the settings to keep them off the map.
 
-## 安装
+## Install
 
-还没有上架社区插件市场，所以需要手动安装：
+Not in the community plugin browser yet, so install manually:
 
 ```bash
 npm install
 npm run build
 ```
 
-然后把 `main.js`、`manifest.json` 和 `styles.css` 复制进你的库：
+Then copy `main.js`, `manifest.json` and `styles.css` into your vault:
 
 ```bash
 mkdir -p /path/to/vault/.obsidian/plugins/mindmap-mode
 cp main.js manifest.json styles.css /path/to/vault/.obsidian/plugins/mindmap-mode/
 ```
 
-在 *设置 → 第三方插件* 里启用 **Mindmap Mode**。
+Enable **Mindmap Mode** in *Settings → Community plugins*.
 
-做开发的话改用软链接，这样 `npm run dev` 会就地重新构建，然后用 *不保存而重载应用*（或 Hot-Reload 插件）来加载改动：
+For development, symlink the repo instead so `npm run dev` rebuilds in place,
+then use *Reload app without saving* (or the Hot-Reload plugin) to pick up changes:
 
 ```bash
 ln -s "$PWD" /path/to/vault/.obsidian/plugins/mindmap-mode
 npm run dev
 ```
 
-仓库里的 `test-vault/` 是一个示例库 —— 把那个文件夹作为库打开，再把插件软链接进 `test-vault/.obsidian/plugins/`，就能在不碰你真实笔记的情况下试用。
+A sample vault lives in `test-vault/` — open that folder as a vault and symlink
+the plugin into `test-vault/.obsidian/plugins/` to try it without touching your
+real notes.
 
-## 设置项
+## Settings
 
-节点来源（标题和列表 / 仅标题 / 仅列表）、最深标题层级、根节点策略、新建列表项的缩进单位、布局（平衡式或单侧）、分支配色、是否把正文内容显示为卡片、卡片宽度、间距、滚轮行为，以及是否在标题栏添加按钮。
+Node source (headings and lists / headings only / lists only), deepest heading
+level, root node policy, indent unit for new list items, layout (balanced or
+single-sided), branch colours, whether note content appears as cards, card
+width, spacing, wheel behaviour, and whether to add the header button.
 
-## 往返改写是怎么保证安全的
+## How the round trip is kept safe
 
-每一次操作都是对原文的一次**行区间替换**。导图只是一层投影：每个节点都记着自己来自哪一行，以及那一行的确切组成部分（缩进、标记符、空格、复选框、文字、行尾后缀），因此它能逐字符地把自己重建出来。文件永远不会从树重新生成。
+Every operation is a **line-range splice** on the original text. The map is a
+projection: each node remembers the exact line it came from and the exact pieces
+of that line (indent, marker, spacing, checkbox, text, trailing suffix), so it
+can rebuild itself character-for-character. The file is never regenerated from
+the tree.
 
-这个不变量是由测试套件强制保证的，而不是靠约定：
+That invariant is enforced by the test suite rather than assumed:
 
 ```bash
 npm test
 ```
 
-它验证的内容包括：解析 / 序列化的往返在 frontmatter、CRLF、波浪号围栏与嵌套围栏、有序列表、空列表项、带闭合井号的标题上都逐字节一致；围栏代码块永远不产生节点；**任何操作都不会碰 frontmatter**；以及在一个内容丰富的样例上，每一种合法的改父级操作往返之后代码内容依然完好。
+It checks, among other things, that a parse/serialize round trip is
+byte-identical across frontmatter, CRLF, tilde and nested fences, ordered lists,
+empty list items and closing-hash headings; that fenced code never produces
+nodes; that **no operation ever touches frontmatter**; and that every legal
+reparent across a rich fixture still round-trips with code content intact.
 
-布局也有覆盖 —— 在平衡式和单侧两种模式下，深而不均的树里都断言卡片永不重叠；同一棵树连续排版两次断言落点完全相同（MathJax 刷新样式表之后，导图会重新测量而不重建 DOM）。`$…$` 的分隔符规则单独放在一个零依赖模块里，因此可以用同样的方式测试。
+Layout is covered too — cards are asserted never to overlap in deep, uneven
+trees, in both balanced and single-sided modes, and laying out the same tree
+twice is asserted to land in exactly the same place (the map re-measures without
+rebuilding once MathJax has flushed its stylesheet). The `$…$` delimiter rules
+live in their own dependency-free module so they can be tested the same way.
 
-## 已知限制
+## Known limits
 
-- **Setext 式标题**（用 `===` 或 `---` 下划线标出的标题）被当作正文内容而非节点。它们会被原样保留；导图读取的是 ATX（`#`）式标题。
-- 当笔记有且仅有一个顶级标题时，它就是根节点，否则用文件名。文件名根节点无法在导图里重命名 —— 那等于重命名文件。
-- 折叠状态只存在内存里，刻意不写进笔记，所以导图永远不会往你的文件里添东西。代价是它不会保留：打开另一篇笔记，或者切到 markdown 再切回来，导图都会重新折叠成"根 + 一级分支"。
-- 行内公式采用了比 Obsidian 自身更严格的 `$…$` 规则 —— 公式内容不能以空白开头或结尾，闭合的 `$` 后面也不能紧跟数字。这正是 `$5-$10` 能保持是价格的原因，代价是 `$x$2` 会保持原文不渲染。
-- 把带复选框的列表项移动到标题位置时，`[x]` 会变成字面文本（标题不能带复选框）。移回去时会恢复成真正的复选框。
+- **Setext headings** (`Title` underlined with `===` or `---`) are treated as
+  body content, not nodes. They are preserved untouched; ATX (`#`) headings are
+  what the map reads.
+- The root node is the note's single top-level heading when it has one, and
+  otherwise the file name. A file-name root cannot be renamed from the map,
+  since that would mean renaming the file.
+- Fold state lives in memory and is deliberately not written to the note, so the
+  map never adds anything to your file. The flip side is that it does not
+  survive: opening a different note, or toggling out to markdown and back,
+  re-folds the map to the root and its top-level branches.
+- Inline math uses a stricter `$…$` rule than Obsidian's reader — the body may
+  not begin or end on whitespace, and a closing `$` may not be followed by a
+  digit. That is what keeps `$5-$10` a price, at the cost of `$x$2` staying
+  literal.
+- Moving a checkbox item into heading position keeps `[x]` as literal text
+  (headings cannot hold checkboxes). Moving it back restores a real checkbox.
 
-## 开发
+## Development
 
 ```
-src/model/     解析器 + 变更引擎 —— 纯函数，不 import Obsidian
-src/layout/    tidy-tree 布局
-src/view/      画布、卡片、连线、交互、公式、TextFileView
-src/main.ts    插件：视图注册、模式切换、命令
+src/model/     parser + mutation engine — pure functions, no Obsidian imports
+src/layout/    tidy-tree layout
+src/view/      canvas, cards, connectors, interactions, math, the TextFileView
+src/main.ts    plugin: view registration, the mode toggle, commands
 ```
 
-`src/model` 和 `src/layout` 不依赖 DOM 也不依赖 Obsidian，所以可以用 `node --test` 直接做单元测试（Node 22.6+ 原生剥离 TypeScript 类型 —— 无需构建步骤，也无需测试框架）。
+`src/model` and `src/layout` have no DOM or Obsidian dependency, which is why
+they can be unit-tested directly with `node --test` (Node 22.6+ strips the
+TypeScript types natively — no build step, no test framework).
 
-## 许可证
+## License
 
-MIT — 见 [LICENSE](LICENSE)。Copyright (c) 2026 PHANTOM-Nw。
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 PHANTOM-Nw.
 
-本插件不打包任何第三方代码：没有运行时依赖，公式排版借用的是 Obsidian 自带的
-MathJax，图标走 Obsidian 的 `setIcon`，两者都不随插件分发。
+No third-party code is bundled: there are no runtime dependencies, formulas are
+typeset by Obsidian's own MathJax, and icons come from Obsidian's `setIcon`.
+Neither is redistributed with the plugin.
 
-XMind、MindNode 是各自权利人的商标，本项目与它们没有任何关联，提及仅为描述操作
-方式。Obsidian 是 Dynalist Inc. 的商标。
+XMind and MindNode are trademarks of their respective owners; this project is
+not affiliated with either and mentions them only to describe how the canvas
+behaves. Obsidian is a trademark of Dynalist Inc.

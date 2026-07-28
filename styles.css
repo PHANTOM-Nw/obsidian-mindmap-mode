@@ -571,6 +571,15 @@
 	box-shadow: 0 8px 30px rgb(0 0 0 / 24%);
 }
 
+/* The shortcut sheet is the one popover with no anchor to point at, so it sits
+   in the middle of the view rather than at a computed position. That makes it
+   static styling, which belongs here and not on `panel.style`. */
+.mm-popover.mm-shortcuts {
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+}
+
 .mm-popover h4 {
 	margin: 0 0 6px;
 }

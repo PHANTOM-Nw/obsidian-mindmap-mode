@@ -76,8 +76,13 @@ export interface ParseOptions {
 	rootPolicy: RootPolicy;
 	/** Headings deeper than this are folded into body content. */
 	maxHeadingDepth: number;
-	/** "auto" detects from the file; otherwise a literal indent string. */
-	indentUnit: string | "auto";
+	/**
+	 * The literal indent string for new list items, or the sentinel `"auto"` to
+	 * detect it from the file. Typed plain `string` on purpose: a
+	 * `"auto" | string` union collapses to `string` anyway, so writing it out
+	 * only implies a narrowing the compiler never performs.
+	 */
+	indentUnit: string;
 }
 
 export const DEFAULT_PARSE_OPTIONS: ParseOptions = {

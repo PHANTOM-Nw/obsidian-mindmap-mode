@@ -83,7 +83,10 @@ export default class MindmapPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		// `loadData` is typed `any`; naming the shape here is what keeps an
+		// unchecked spread from silently widening every setting to `any`.
+		const stored = (await this.loadData()) as Partial<MindmapSettings> | null;
+		this.settings = { ...DEFAULT_SETTINGS, ...stored };
 	}
 
 	async saveSettings(): Promise<void> {
