@@ -11,6 +11,12 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.0.3] - 2026-07-28
+
+### 变更 / Changed
+
+- 插件简介改写为纯 ASCII 文本，以满足官方插件市场对描述的要求。功能没有任何变化。<br>Reworded the plugin description to plain ASCII, which the community plugin directory requires. Nothing about how the plugin behaves has changed.
+
 ## [1.0.2] - 2026-07-27
 
 ### 新增 / Added

@@ -1,7 +1,7 @@
 {
   "name": "obsidian-mindmap-mode",
   "version": "1.0.2",
-  "description": "Toggle any note into an editable, radial mind map in place, without ever creating a file.",
+  "description": "Toggle any note into an editable, radial mind map in the same tab. Every edit writes straight back to the original note, and no new files are ever created.",
   "type": "module",
   "main": "main.js",
   "scripts": {
