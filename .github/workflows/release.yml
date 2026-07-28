@@ -80,21 +80,33 @@ jobs:
             fi
           } > release-notes.md
 
+          # Each language is its own paragraph, never two lines of one paragraph:
+          # a blank line is a paragraph break in every renderer, while a bare
+          # newline is one only where the host turns newlines into breaks.
           cat >> release-notes.md <<EOF
-          ## Install
+          ## 安装 / Install
 
-          **Manual:** download \`main.js\`, \`manifest.json\` and \`styles.css\` below into
+          **手动安装：** 把下方的 \`main.js\`、\`manifest.json\`、\`styles.css\` 下载到
 
           \`\`\`
           <your vault>/.obsidian/plugins/mindmap-mode/
           \`\`\`
 
+          然后在 *设置 → 第三方插件* 中启用 **Mindmap Mode**。
+          （或者下载 \`mindmap-mode.zip\`，解压到 \`.obsidian/plugins/\` 下。）
+
+          **BRAT：** 把 \`$REPO\` 添加为 beta 插件。
+
+          **Manual:** download \`main.js\`, \`manifest.json\` and \`styles.css\` below into the folder above,
           then enable **Mindmap Mode** in *Settings → Community plugins*.
           (Or download \`mindmap-mode.zip\` and unzip it into \`.obsidian/plugins/\`.)
 
           **BRAT:** add \`$REPO\` as a beta plugin.
 
-          ## Use it
+          ## 用法 / Use it
+
+          打开一篇笔记，在命令面板里运行 **Toggle mind map view** —— 给它绑一个快捷键，
+          用起来就像切换阅读模式。导图在同一个标签页、同一个文件上打开，不会创建任何文件。
 
           Open a note and run **Toggle mind map view** from the command palette —
           assign it a hotkey to make it feel like switching reading mode. The map
