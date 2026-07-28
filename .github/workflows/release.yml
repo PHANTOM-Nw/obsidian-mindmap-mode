@@ -33,6 +33,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/check-version.mjs
 
+      # Also up front, and for the same reason: the section is the release notes,
+      # so a missing one means a release that says nothing about what changed.
+      # `npm run check` runs this script too, so it should never fail here.
+      - name: Check the changelog covers this version
+        run: node scripts/check-changelog.mjs
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -62,7 +68,19 @@ jobs:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
-          cat > release-notes.md <<EOF
+          prev=$(node scripts/check-changelog.mjs --previous)
+          {
+            echo "## 更新内容 / What's changed"
+            echo ""
+            node scripts/check-changelog.mjs --print
+            echo ""
+            if [ -n "$prev" ]; then
+              echo "**Full changelog:** [\`$prev...$TAG\`](https://github.com/$REPO/compare/$prev...$TAG)"
+              echo ""
+            fi
+          } > release-notes.md
+
+          cat >> release-notes.md <<EOF
           ## Install
 
           **Manual:** download \`main.js\`, \`manifest.json\` and \`styles.css\` below into

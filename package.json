@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
     "check-version": "node scripts/check-version.mjs",
-    "check": "npm run check-version && npm run typecheck && npm test && npm run build",
+    "check-changelog": "node scripts/check-changelog.mjs",
+    "check": "npm run check-version && npm run check-changelog && npm run typecheck && npm test && npm run build",
     "version": "node version-bump.mjs && git add manifest.json versions.json"
   },
   "keywords": [
