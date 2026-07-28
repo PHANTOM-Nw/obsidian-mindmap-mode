@@ -64,12 +64,23 @@ jobs:
       # Lets anyone verify these two came out of this repository's build rather
       # than off somebody's laptop. Runs on the built files, before they are
       # uploaded, because the attestation is bound to their digests.
+      # Obsidian only ever fetches the three loose files, so the zip is purely a
+      # convenience for installing by hand -- one download instead of three.
+      # The review flags it as an extra file; that is a recommendation, and
+      # keeping it is a deliberate answer to it.
+      - name: Package a convenience zip
+        run: |
+          mkdir -p dist/mindmap-mode
+          cp main.js manifest.json styles.css LICENSE dist/mindmap-mode/
+          (cd dist && zip -r mindmap-mode.zip mindmap-mode)
+
       - name: Attest the build provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             main.js
             styles.css
+            dist/mindmap-mode.zip
 
       - name: Write release notes
         env:
@@ -101,11 +112,13 @@ jobs:
           \`\`\`
 
           然后在 *设置 → 第三方插件* 中启用 **Mindmap Mode**。
+          （或者下载 \`mindmap-mode.zip\`，解压到 \`.obsidian/plugins/\` 下，一个文件搞定。）
 
           **BRAT：** 把 \`$REPO\` 添加为 beta 插件。
 
           **Manual:** download \`main.js\`, \`manifest.json\` and \`styles.css\` below into the folder above,
           then enable **Mindmap Mode** in *Settings → Community plugins*.
+          (Or download \`mindmap-mode.zip\` and unzip it into \`.obsidian/plugins/\` -- one download instead of three.)
 
           **BRAT:** add \`$REPO\` as a beta plugin.
 
@@ -130,7 +143,7 @@ jobs:
             --title "$TAG" \
             --notes-file release-notes.md \
             --draft \
-            main.js manifest.json styles.css
+            main.js manifest.json styles.css dist/mindmap-mode.zip
 
       - name: Summary
         env:

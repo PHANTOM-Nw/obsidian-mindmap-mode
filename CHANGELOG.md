@@ -19,7 +19,7 @@ the entry has to read correctly in both.
 
 ### 变更 / Changed
 
-- 发布资产不再附带 zip 包 —— Obsidian 从来不会下载它。`main.js` 和 `styles.css` 现在带 GitHub 构建来源证明，任何人都可以验证它们确实由本仓库构建。<br>Releases no longer carry a zip, which Obsidian never downloaded anyway. `main.js` and `styles.css` now ship with GitHub build provenance, so anyone can verify they came out of this repository.
+- 发布资产现在都带 GitHub 构建来源证明，任何人都可以验证它们确实由本仓库构建，而不是从谁的电脑上传的。手动安装用的 `mindmap-mode.zip` 保持不变。<br>Release assets now carry GitHub build provenance, so anyone can verify they were built from this repository rather than uploaded off somebody's laptop. The `mindmap-mode.zip` for installing by hand is still there.
 
 ## [1.0.3] - 2026-07-28
 
