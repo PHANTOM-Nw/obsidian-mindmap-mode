@@ -200,10 +200,15 @@ export class MindmapSettingTab extends PluginSettingTab {
 		}));
 	}
 
-	/** The base class has already written and persisted the value. */
+	/**
+	 * Writes the value rather than delegating to `super`. The base implementation
+	 * would do the same thing, but calling it is a call into an API newer than
+	 * `minAppVersion`, which the directory's review rejects -- and rightly, since
+	 * on 1.12 there would be nothing there to call. Overriding a method Obsidian
+	 * calls into is free; calling one it may not have is not.
+	 */
 	override async setControlValue(key: string, value: unknown): Promise<void> {
-		await super.setControlValue(key, value);
-		this.applySideEffects(key);
+		await this.commit(key, value);
 	}
 
 	// --- Obsidian 1.12 and earlier ----------------------------------------------
@@ -226,11 +231,8 @@ export class MindmapSettingTab extends PluginSettingTab {
 		if (typeof item.desc === "string") setting.setDesc(item.desc);
 
 		const control = item.control;
-		const commit = async (value: string | number | boolean): Promise<void> => {
-			this.write(control.key, value);
-			await this.plugin.saveSettings();
-			this.applySideEffects(control.key);
-		};
+		const commit = (value: string | number | boolean): Promise<void> =>
+			this.commit(control.key, value);
 
 		switch (control.type) {
 			case "dropdown":
@@ -260,6 +262,13 @@ export class MindmapSettingTab extends PluginSettingTab {
 
 	// --- shared ------------------------------------------------------------------
 
+	/** The single write path, whichever renderer collected the value. */
+	private async commit(key: string, value: unknown): Promise<void> {
+		this.store[key] = value;
+		await this.plugin.saveSettings();
+		this.applySideEffects(key);
+	}
+
 	private applySideEffects(key: string): void {
 		if (key === HEADER_BUTTON_KEY) this.plugin.refreshHeaderButtons();
 		else this.plugin.refreshAllViews();
@@ -276,9 +285,5 @@ export class MindmapSettingTab extends PluginSettingTab {
 
 	private read(key: SettingKey): unknown {
 		return this.store[key];
-	}
-
-	private write(key: SettingKey, value: string | number | boolean): void {
-		this.store[key] = value;
 	}
 }

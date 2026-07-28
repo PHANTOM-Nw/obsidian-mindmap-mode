@@ -11,6 +11,12 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.0.5] - 2026-07-28
+
+### 修复 / Fixed
+
+- 移除了一处对 Obsidian 1.13 才有的接口的调用。实际执行路径从未走到它，所以没有人遇到过问题，但插件不该引用高于自己 `minAppVersion` 的 API。设置页在新旧版本上的行为都不变。<br>Removed a call into an API that only exists in Obsidian 1.13. Nothing ever reached it, so nobody hit a problem, but a plugin should not reference an API newer than its own `minAppVersion`. The settings tab behaves the same on every version.
+
 ## [1.0.4] - 2026-07-28
 
 ### 新增 / Added
