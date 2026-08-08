@@ -11,6 +11,15 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.1.0] - 2026-08-09
+
+### 新增 / Added
+
+- 导图现在会记住你把它折成了什么样。再打开同一篇笔记，折叠的分支还是折着的，镜头也落在你上次正在看的那张卡片上。这份状态存在插件自己的数据里，笔记一个字都不会改 —— 不产生 diff，也不会有合并冲突。<br>The map now remembers how you folded it. Reopen a note and the branches you collapsed are still collapsed, framed on the card you were last working on. That state lives in the plugin's own data, not in the note — your markdown is untouched, so there is nothing to diff and nothing to merge.
+- 设置 → 行为里多了**记住折叠状态**开关，默认打开。关掉它，每张导图都会像以前一样打开成"根 + 一级分支"。<br>A **Remember fold state** toggle in Settings → Behaviour, on by default. Turn it off and every map opens at the root plus its top-level branches, exactly as before.
+- 新命令 *Forget the saved fold state for this note*，用来只清掉当前这篇笔记记住的状态，不必去动设置。<br>A new command, *Forget the saved fold state for this note*, drops what is remembered about the note you are looking at without touching the setting.
+- 笔记改名、移动，或者整个文件夹被搬走时，记住的状态会跟着一起走；笔记被删除时状态一并清掉。<br>Renaming or moving a note — or moving the whole folder it sits in — carries its remembered state along, and deleting a note clears it.
+
 ## [1.0.5] - 2026-07-28
 
 ### 修复 / Fixed
