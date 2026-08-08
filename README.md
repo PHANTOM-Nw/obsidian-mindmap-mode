@@ -21,6 +21,9 @@ MindNode, except the data never stops being your markdown note.
 - **Opens folded.** A map starts at the root plus its top-level branches, each
   toggle showing how many nodes are hiding behind it. Open one branch and you get
   one more level, not the whole subtree.
+- **Reopens where you left it.** Come back to a note and it is folded the way you
+  had it, framed on the card you were working on. That state lives in the
+  plugin's own data, never in the note — nothing to diff, nothing to merge.
 - **Formulas render.** `$\lambda$` and `$$\sum_{i=1}^{n} x_i$$` are typeset with
   Obsidian's own MathJax. Prices like `$5 and $10` are left as prices.
 - **Edit on the canvas.** Rename, add, delete, indent, drag to reparent, drag to
@@ -138,7 +141,13 @@ real notes.
 Node source (headings and lists / headings only / lists only), deepest heading
 level, root node policy, indent unit for new list items, layout (balanced or
 single-sided), branch colours, whether note content appears as cards, card
-width, spacing, wheel behaviour, and whether to add the header button.
+width, spacing, wheel behaviour, whether to remember fold state, and whether to
+add the header button.
+
+Turning **Remember fold state** off makes every map open at the root plus its
+top-level branches, as it did before. There is also a command, *Forget the saved
+fold state for this note*, for dropping one note's state without touching the
+setting.
 
 ## How the round trip is kept safe
 
@@ -174,10 +183,10 @@ live in their own dependency-free module so they can be tested the same way.
 - The root node is the note's single top-level heading when it has one, and
   otherwise the file name. A file-name root cannot be renamed from the map,
   since that would mean renaming the file.
-- Fold state lives in memory and is deliberately not written to the note, so the
-  map never adds anything to your file. The flip side is that it does not
-  survive: opening a different note, or toggling out to markdown and back,
-  re-folds the map to the root and its top-level branches.
+- Fold state is remembered per note in the plugin's own `data.json`, never in the
+  note itself. A node is found again by its heading path, so renaming one forgets
+  where it was folded; the branches around it are unaffected. The last 200 notes
+  are kept, and a note left at the default fold stores nothing at all.
 - Inline math uses a stricter `$…$` rule than Obsidian's reader — the body may
   not begin or end on whitespace, and a closing `$` may not be followed by a
   digit. That is what keeps `$5-$10` a price, at the cost of `$x$2` staying

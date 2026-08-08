@@ -1,20 +1,50 @@
-import { Notice, Plugin, TFile, setIcon } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, debounce, setIcon } from "obsidian";
 import type { ViewState, WorkspaceLeaf } from "obsidian";
 
 import { MINDMAP_VIEW_TYPE, MindmapView } from "./view/MindmapView.ts";
 import { DEFAULT_SETTINGS, MindmapSettingTab } from "./settings.ts";
 import type { MindmapSettings } from "./settings.ts";
+import {
+	forgetFolder,
+	forgetNote,
+	putNoteState,
+	readStore,
+	renameFolder,
+	renameNote,
+} from "./foldStore.ts";
+import type { FoldStore, NoteViewEntry, NoteViewState } from "./foldStore.ts";
 
 const HEADER_BUTTON_CLASS = "mindmap-mode-toggle";
 
+/** Where the fold store sits in `data.json`, beside the flat settings. */
+const FOLD_STATE_KEY = "foldState";
+
+/**
+ * How long a fold change waits before it reaches disk.
+ *
+ * Every toggle, expand-all and selection move asks to be saved, and a user
+ * walking a big map does that a few times a second. Long enough to collapse a
+ * burst into one write, short enough that a crash loses a click, not an hour.
+ */
+const FOLD_SAVE_DELAY = 800;
+
 export default class MindmapPlugin extends Plugin {
 	override settings: MindmapSettings = { ...DEFAULT_SETTINGS };
+
+	/** Fold and focus state per note path. Shares `data.json` with the settings. */
+	private foldStore: FoldStore = {};
 
 	/**
 	 * The markdown view state a leaf had before it became a map, so toggling
 	 * back returns to reading or source mode exactly as the user left it.
 	 */
 	private readonly previousState = new WeakMap<WorkspaceLeaf, ViewState>();
+
+	private readonly queueSave = debounce(
+		() => void this.savePluginData(),
+		FOLD_SAVE_DELAY,
+		false,
+	);
 
 	override async onload(): Promise<void> {
 		await this.loadSettings();
@@ -38,6 +68,21 @@ export default class MindmapPlugin extends Plugin {
 				const leaf = this.app.workspace.getMostRecentLeaf();
 				if (!leaf || !this.isToggleable(leaf)) return false;
 				if (!checking) void this.toggleLeaf(leaf);
+				return true;
+			},
+		});
+
+		this.addCommand({
+			id: "forget-fold-state",
+			name: "Forget the saved fold state for this note",
+			checkCallback: (checking) => {
+				const view = this.app.workspace.getActiveViewOfType(MindmapView);
+				const path = view?.file?.path;
+				if (!view || !path) return false;
+				if (!checking) {
+					this.forgetNoteState(path);
+					view.resetFolds();
+				}
 				return true;
 			},
 		});
@@ -69,6 +114,26 @@ export default class MindmapPlugin extends Plugin {
 			}),
 		);
 
+		// A note that moves keeps its state; one that is deleted takes its state
+		// with it. Neither is cosmetic -- without the first, reorganising a vault
+		// quietly resets every map in it, and without the second the store fills
+		// with entries for files nothing will ever open again.
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				if (file instanceof TFolder) {
+					this.updateStore(renameFolder(this.foldStore, oldPath, file.path));
+				} else if (file instanceof TFile && file.extension === "md") {
+					this.updateStore(renameNote(this.foldStore, oldPath, file.path));
+				}
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				if (file instanceof TFolder) this.updateStore(forgetFolder(this.foldStore, file.path));
+				else if (file instanceof TFile) this.forgetNoteState(file.path);
+			}),
+		);
+
 		this.registerEvent(
 			this.app.workspace.on("layout-change", () => this.refreshHeaderButtons()),
 		);
@@ -79,18 +144,70 @@ export default class MindmapPlugin extends Plugin {
 	}
 
 	override onunload(): void {
+		// Obsidian is done with the plugin after this returns, so a fold change
+		// still sitting on the debounce timer has to be spent now or lost.
+		this.queueSave.run();
 		this.removeHeaderButtons();
 	}
 
 	async loadSettings(): Promise<void> {
 		// `loadData` is typed `any`; naming the shape here is what keeps an
 		// unchecked spread from silently widening every setting to `any`.
-		const stored = (await this.loadData()) as Partial<MindmapSettings> | null;
-		this.settings = { ...DEFAULT_SETTINGS, ...stored };
+		const stored = (await this.loadData()) as Record<string, unknown> | null;
+
+		// The settings sit flat at the root of data.json and the fold store sits
+		// beside them under one reserved key. Lifting it out before the spread is
+		// what stops it riding into `this.settings` as an unrecognised setting --
+		// which the next save would then write back inside itself, once per save.
+		const { [FOLD_STATE_KEY]: folds, ...rest } = stored ?? {};
+		this.foldStore = readStore(folds);
+		this.settings = { ...DEFAULT_SETTINGS, ...(rest as Partial<MindmapSettings>) };
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		await this.savePluginData();
+	}
+
+	// --- remembered fold state ------------------------------------------------
+
+	/**
+	 * The one place data.json is written.
+	 *
+	 * Two things share the file now, and `saveData` replaces it wholesale, so a
+	 * write that knew only about the settings would drop every note's fold state
+	 * the first time somebody moved a slider.
+	 */
+	private async savePluginData(): Promise<void> {
+		// Whatever the timer was going to write is in this write already, so a
+		// settings change spends the pending fold save rather than racing it.
+		this.queueSave.cancel();
+		await this.saveData({ ...this.settings, [FOLD_STATE_KEY]: this.foldStore });
+	}
+
+	/** Swap the store and schedule a write, unless nothing actually changed. */
+	private updateStore(next: FoldStore): void {
+		if (next === this.foldStore) return;
+		this.foldStore = next;
+		this.queueSave();
+	}
+
+	/** What a note was left looking like, or null when nothing is remembered. */
+	readNoteState(path: string): NoteViewState | null {
+		if (!this.settings.rememberFolds) return null;
+		return this.foldStore[path] ?? null;
+	}
+
+	writeNoteState(path: string, entry: NoteViewEntry): void {
+		if (!this.settings.rememberFolds) return;
+		this.updateStore(putNoteState(this.foldStore, path, entry, Date.now()));
+	}
+
+	/**
+	 * Deliberately not gated on `rememberFolds`: the command has to be able to
+	 * clear a stale entry left behind by a session where the setting was on.
+	 */
+	forgetNoteState(path: string): void {
+		this.updateStore(forgetNote(this.foldStore, path));
 	}
 
 	refreshAllViews(): void {

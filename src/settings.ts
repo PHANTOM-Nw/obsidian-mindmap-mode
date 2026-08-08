@@ -13,6 +13,7 @@ export interface MindmapSettings {
 	layout: LayoutMode;
 	indentUnit: "auto" | "two" | "four" | "tab";
 	wheel: WheelMode;
+	rememberFolds: boolean;
 	branchColors: boolean;
 	showBodyNodes: boolean;
 	maxNodeWidth: number;
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	layout: "balanced",
 	indentUnit: "auto",
 	wheel: "zoom",
+	rememberFolds: true,
 	branchColors: true,
 	showBodyNodes: true,
 	maxNodeWidth: 340,
@@ -172,6 +174,11 @@ const GROUPS: SettingGroup[] = [
 						pan: "Pans (hold Ctrl to zoom)",
 					},
 				},
+			},
+			{
+				name: "Remember fold state",
+				desc: "Reopen a note to the shape you left it in, focus included. The state is kept in the plugin's own data, never in the note — your markdown is untouched either way. Turn this off and every map opens at the root plus its top-level branches.",
+				control: { type: "toggle", key: "rememberFolds" },
 			},
 			{
 				name: "Button in the note header",

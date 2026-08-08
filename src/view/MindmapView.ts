@@ -119,6 +119,15 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private collapsedKeys = new Set<string>();
 	private foldSeedPending = false;
+	/**
+	 * A restored focus waiting for the first framing to honour it.
+	 *
+	 * Not `pendingFocus`, which is where an edit wants the caret. This one only
+	 * decides where the camera lands when a note opens: on the node the user was
+	 * last working on, or -- when that node is gone, renamed out from under its
+	 * key, or hidden inside a branch they left folded -- on the whole map.
+	 */
+	private restoreFocusKey: string | null = null;
 	/** Body cards drawn by the last paint, keyed by their synthetic id. */
 	private bodyNodes = new Map<string, BodyRef>();
 	/** Consumed by the next paint. */
@@ -179,6 +188,7 @@ export class MindmapView extends TextFileView implements MapController {
 		if (clear) {
 			this.collapsedKeys.clear();
 			this.selectionKey = null;
+			this.restoreFocusKey = null;
 			this.undoStack = [];
 			this.redoStack = [];
 			this.needsFit = true;
@@ -197,6 +207,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.elements.clear();
 		this.collapsedKeys.clear();
 		this.selectionKey = null;
+		this.restoreFocusKey = null;
 		this.paintToken++;
 		this.closePopover();
 		// The dialog holds line ranges from the file being cleared; leaving it up
@@ -329,10 +340,10 @@ export class MindmapView extends TextFileView implements MapController {
 	private render(): void {
 		this.parsed = parseMarkdown(this.data, this.parseOptions());
 
-		// Before anything reveals a node: foldFrom clears the whole set.
+		// Before anything reveals a node: seeding replaces the whole set.
 		if (this.foldSeedPending) {
 			this.foldSeedPending = false;
-			this.foldFrom(INITIAL_EXPAND_LEVEL);
+			this.seedFolds();
 		}
 
 		if (this.pendingFocus) {
@@ -352,27 +363,118 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	/**
-	 * Collapse every node at or below `depth`, counting the root as 0. Pass
-	 * `Infinity` to expand everything.
+	 * Every node at or below `depth`, counting the root as 0, that has anything
+	 * to hide. `Infinity` yields nothing, which is how "expand all" is spelled.
 	 *
-	 * Seeding continues past nodes that are themselves collapsed. `paint()` just
+	 * The walk continues past nodes that are themselves collapsed. `paint()` just
 	 * stops descending when it meets a collapsed key, so the deeper entries cost
 	 * nothing to carry -- and they are what makes expanding a branch reveal one
 	 * level at a time rather than dumping the whole subtree on screen.
 	 */
-	private foldFrom(depth: number): void {
-		this.collapsedKeys.clear();
-		if (!this.parsed || !Number.isFinite(depth)) return;
+	private collapsedAtDepth(depth: number): Set<string> {
+		const keys = new Set<string>();
+		if (!this.parsed || !Number.isFinite(depth)) return keys;
 		// childCount, not children.length: a section whose only content is
 		// paragraphs or callouts still has body cards to fold away.
 		const showBody = this.plugin.settings.showBodyNodes;
 		const visit = (node: MindNode, d: number): void => {
-			if (d >= depth && this.childCount(node, showBody) > 0) {
-				this.collapsedKeys.add(node.key);
-			}
+			if (d >= depth && this.childCount(node, showBody) > 0) keys.add(node.key);
 			for (const child of node.children) visit(child, d + 1);
 		};
 		visit(this.parsed.root, 0);
+		return keys;
+	}
+
+	private foldFrom(depth: number): void {
+		this.collapsedKeys = this.collapsedAtDepth(depth);
+	}
+
+	/**
+	 * The shape a freshly opened note starts in: what the user left behind if
+	 * anything was remembered, and the default otherwise.
+	 */
+	private seedFolds(): void {
+		const parsed = this.parsed;
+		const path = this.file?.path;
+		const saved = parsed && path ? this.plugin.readNoteState(path) : null;
+		if (!parsed || !saved) {
+			this.foldFrom(INITIAL_EXPAND_LEVEL);
+			return;
+		}
+
+		// Keys the note no longer has are dropped rather than carried. They would
+		// cost a lookup on every paint, and the next save would write them
+		// straight back -- a note edited outside Obsidian would accumulate the
+		// ghost of every heading it ever had.
+		const showBody = this.plugin.settings.showBodyNodes;
+		const restored = new Set<string>();
+		for (const key of saved.collapsed) {
+			const node = parsed.byKey.get(key);
+			if (node && this.childCount(node, showBody) > 0) restored.add(key);
+		}
+		this.collapsedKeys = restored;
+
+		const focus = this.findSaved(parsed, saved.focusKey, saved.focusId);
+		// A focus inside a branch the user left folded loses to the fold: opening
+		// the branch to show it would undo a decision they made on purpose, and
+		// selecting a card that is not on screen leaves the keyboard aimed at
+		// nothing. The map simply frames itself instead.
+		if (!focus || !this.isVisible(focus)) return;
+		this.selectionKey = focus.key;
+		this.restoreFocusKey = focus.key;
+	}
+
+	/**
+	 * The node a saved focus points at: by text path first, by tree position
+	 * when the text has changed since.
+	 *
+	 * Renaming a node moves its key and leaves its position; inserting a sibling
+	 * above it does the reverse. Only an edit that does both at once loses the
+	 * focus, and losing it costs a default framing, nothing more.
+	 */
+	private findSaved(parsed: ParsedDoc, key?: string, id?: string): MindNode | null {
+		const byKey = key === undefined ? undefined : parsed.byKey.get(key);
+		if (byKey) return byKey;
+		return (id === undefined ? undefined : parsed.byId.get(id)) ?? null;
+	}
+
+	/** False when a collapsed ancestor is keeping the node off the map. */
+	private isVisible(node: MindNode): boolean {
+		for (let p: MindNode | null = node.parent; p; p = p.parent) {
+			if (this.collapsedKeys.has(p.key)) return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Hand the current shape to the plugin, which batches the writes.
+	 *
+	 * A map sitting at exactly the default fold with nothing selected is stored
+	 * as nothing at all. That is what a note looks like the moment it is opened
+	 * and never touched, and an entry apiece for those would be the bulk of the
+	 * file in exchange for restoring precisely the state you get without it.
+	 */
+	private rememberState(): void {
+		const path = this.file?.path;
+		if (!this.parsed || !path || !this.plugin.settings.rememberFolds) return;
+
+		const focus = this.selectedNode();
+		if (!focus && this.isDefaultFold()) {
+			this.plugin.forgetNoteState(path);
+			return;
+		}
+		this.plugin.writeNoteState(path, {
+			collapsed: [...this.collapsedKeys],
+			focusKey: focus?.key,
+			focusId: focus?.id,
+		});
+	}
+
+	private isDefaultFold(): boolean {
+		const fallback = this.collapsedAtDepth(INITIAL_EXPAND_LEVEL);
+		if (fallback.size !== this.collapsedKeys.size) return false;
+		for (const key of this.collapsedKeys) if (!fallback.has(key)) return false;
+		return true;
 	}
 
 	/**
@@ -422,6 +524,19 @@ export class MindmapView extends TextFileView implements MapController {
 		this.markGlobalAnchor();
 		this.foldFrom(INITIAL_EXPAND_LEVEL);
 		this.paint();
+	}
+
+	/**
+	 * Back to the shape a note with nothing remembered opens in.
+	 *
+	 * The paint that follows finds the map at exactly the default with nothing
+	 * selected, which is the one state `rememberState` stores as no entry at
+	 * all -- so the command's own `forgetNoteState` is confirmed, not undone.
+	 */
+	resetFolds(): void {
+		this.selectionKey = null;
+		this.restoreFocusKey = null;
+		this.collapseAll();
 	}
 
 	// --- body content as nodes -------------------------------------------------
@@ -579,7 +694,12 @@ export class MindmapView extends TextFileView implements MapController {
 			if (element.hasMath) sawMath = true;
 		}
 
+		// The fold shape and the selection are both final by now, and neither
+		// changes again before the next paint.
+		this.rememberState();
+
 		const wasFitting = this.needsFit;
+		const wasFocusing = this.restoreFocusKey;
 		this.measureAndPlace(rootLayout, visible, anchor);
 		if (!sawMath) return;
 
@@ -590,7 +710,10 @@ export class MindmapView extends TextFileView implements MapController {
 			// takes the branch below and this can run at most once per session.
 			void ensureMath().then(() => {
 				if (token !== this.paintToken) return;
-				if (wasFitting) this.needsFit = true;
+				if (wasFitting) {
+					this.needsFit = true;
+					this.restoreFocusKey = wasFocusing;
+				}
 				this.paint();
 			});
 			return;
@@ -603,7 +726,10 @@ export class MindmapView extends TextFileView implements MapController {
 		// reads and positions, so it cannot schedule itself again.
 		void finishRenderMath().then(() => {
 			if (token !== this.paintToken) return;
-			if (wasFitting) this.needsFit = true;
+			if (wasFitting) {
+				this.needsFit = true;
+				this.restoreFocusKey = wasFocusing;
+			}
 			this.measureAndPlace(rootLayout, visible, anchor);
 		});
 	}
@@ -659,9 +785,18 @@ export class MindmapView extends TextFileView implements MapController {
 		this.applySelection();
 		if (this.needsFit) {
 			// A first look at the map reframes it deliberately; holding a node
-			// still would fight that.
+			// still would fight that. Where it reframes *to* is the one thing a
+			// restored session gets to change -- and only when the node it names
+			// actually made it onto the canvas.
 			this.needsFit = false;
-			this.canvas.fit(result.width, result.height);
+			const focus = this.restoreFocusKey;
+			this.restoreFocusKey = null;
+			const framed = focus === null ? undefined : result.nodes.find((l) => l.node.key === focus);
+			if (framed) {
+				this.canvas.centreOn(framed.x + framed.width / 2, framed.y + framed.height / 2);
+			} else {
+				this.canvas.fit(result.width, result.height);
+			}
 			return;
 		}
 		if (!anchor) return;
@@ -723,17 +858,20 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	select(id: string | null): void {
+		const before = this.selectionKey;
 		// A body card is not something the map can act on, so picking one drops
 		// the selection rather than leaving the previous card looking active.
 		if (id === null || this.bodyNodes.has(id)) {
 			this.selectionKey = null;
-			this.applySelection();
-			return;
+		} else {
+			const node = this.parsed?.byId.get(id);
+			if (!node) return;
+			this.selectionKey = node.key;
 		}
-		const node = this.parsed?.byId.get(id);
-		if (!node) return;
-		this.selectionKey = node.key;
 		this.applySelection();
+		// Moving the selection is the one change that never repaints, so it is
+		// the one change that has to record itself.
+		if (this.selectionKey !== before) this.rememberState();
 	}
 
 	beginEdit(id: string): void {
