@@ -11,7 +11,7 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
-## [1.1.0] - 2026-08-09
+## [1.0.6] - 2026-08-09
 
 ### 新增 / Added
 
