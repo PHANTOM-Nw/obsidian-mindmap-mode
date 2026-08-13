@@ -67,11 +67,28 @@ reading.
 | `Ctrl`/`Cmd`+`Enter` | Cycle the checkbox: none → `[ ]` → `[x]` → none |
 | `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
 | `Ctrl`/`Cmd`+`0` | Fit the map to the window |
+| `Ctrl`/`Cmd`+`F` | Find in the map: `Enter` / `Shift`+`Enter` steps, `Esc` closes |
 | Wheel / pinch | Zoom; drag blank space to pan |
-| Toolbar | Zoom, fit, centre, **expand all**, **collapse all**, shortcut help |
+| Toolbar | Zoom, fit, centre, **expand all**, **collapse all**, **find**, shortcut help |
 
 **Collapse all** returns the map to the view it opened with, rather than hiding
 everything behind the root.
+
+### Finding a node
+
+`Ctrl`/`Cmd`+`F` opens a find bar over the canvas — Obsidian's own editor search
+cannot reach a map, so the map brings its own. Matching is case-insensitive
+substring by default, with a `.*` toggle for a regular expression; a pattern that
+does not compile just marks the box red rather than throwing. There is also a
+**Find in the mind map** command if you would rather bind your own hotkey.
+
+Nodes are matched on the text you can see: `**bold** text` is found by "bold
+text", and `[[note|Label]]` by "Label" but never by "note". A formula is matched
+as its TeX source. Stepping to a match inside a folded branch opens it, and
+closing the bar folds it back — branches you opened yourself while searching stay
+open. In this version whole matched cards are ringed rather than the matched
+substring, and note-content cards (paragraphs, code blocks, tables) are not
+searched.
 
 Dragging across the heading/list boundary converts the moved block for you. Drop
 a heading onto a bullet and the whole subtree becomes nested bullets; drop a

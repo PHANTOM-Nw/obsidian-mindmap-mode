@@ -184,6 +184,22 @@
 	box-shadow: 0 0 0 2px var(--interactive-accent);
 }
 
+/* Search hits, after the selection on purpose so the current one outranks it.
+   Border colour and box-shadow only: the view measures cards with offsetWidth,
+   and anything that changed their box would move the layout under the jump that
+   just brought one on screen. */
+.mm-node.is-search-match .mm-card {
+	border-color: var(--text-accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-accent) 40%, transparent);
+}
+
+.mm-node.is-search-current .mm-card {
+	border-color: var(--text-accent);
+	box-shadow:
+		0 0 0 3px var(--text-accent),
+		0 2px 10px rgb(0 0 0 / 18%);
+}
+
 .mm-node.is-dragging {
 	opacity: 0.45;
 	pointer-events: none;
@@ -554,6 +570,58 @@
 .mm-tool:hover {
 	background: var(--background-modifier-hover);
 	color: var(--text-normal);
+}
+
+.mm-tool.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/* --- search --------------------------------------------------------------- */
+
+/* Above the toolbar (10) and below the popovers and the block dialog (20): the
+   bar floats over the canvas, never over a panel. */
+.mm-search {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	z-index: 15;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+.mm-search-input {
+	width: min(220px, 40vw);
+	height: 28px;
+	font-size: var(--font-ui-small);
+}
+
+/* A pattern is incomplete for most of the time it is being typed, so this says
+   "not yet", not "wrong". */
+.mm-search-input.is-error {
+	border-color: var(--text-error);
+	color: var(--text-error);
+}
+
+.mm-search-count {
+	min-width: 48px;
+	padding: 0 4px;
+	text-align: center;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+}
+
+.mm-search .mm-tool {
+	width: 24px;
+	height: 24px;
+	font-size: var(--font-ui-smaller);
 }
 
 /* --- popovers ------------------------------------------------------------ */

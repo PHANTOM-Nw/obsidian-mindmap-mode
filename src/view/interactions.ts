@@ -31,6 +31,10 @@ export interface MapController {
 	showMenu(id: string, ev: MouseEvent): void;
 	navigate(direction: Direction): void;
 
+	openSearch(): void;
+	/** False when there was no search bar to close, so Escape stays free. */
+	closeSearch(): boolean;
+
 	canDrop(id: string, targetId: string, mode: DropMode): boolean;
 	move(id: string, targetId: string, mode: DropMode): void;
 
@@ -323,6 +327,14 @@ export function attachInteractions(controller: MapController): () => void {
 			controller.centreOnSelection();
 			return;
 		}
+		// Obsidian's own Ctrl+F belongs to the markdown editor, which this view
+		// replaced. Taken here rather than as a plugin hotkey so it is only ever
+		// claimed while a map has the keyboard.
+		if (mod && ev.key.toLowerCase() === "f") {
+			ev.preventDefault();
+			controller.openSearch();
+			return;
+		}
 		if (mod && ev.key === "Enter") {
 			if (!id) return;
 			ev.preventDefault();
@@ -377,6 +389,12 @@ export function attachInteractions(controller: MapController): () => void {
 				if (!id) return;
 				ev.preventDefault();
 				controller.indent(id);
+				return;
+			case "Escape":
+				// Only ours while a search is open; otherwise Escape keeps
+				// whatever meaning Obsidian gives it.
+				if (!controller.closeSearch()) return;
+				ev.preventDefault();
 				return;
 			default:
 				return;

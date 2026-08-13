@@ -1,6 +1,8 @@
 import { setIcon } from "obsidian";
 
 import type { LayoutNode } from "../layout/tidyTree.ts";
+import { nextInlineToken } from "../model/inlineText.ts";
+import type { InlineKind } from "../model/inlineText.ts";
 import { renderMathInto } from "./math.ts";
 import { MATH_DISPLAY, MATH_INLINE } from "./mathSyntax.ts";
 
@@ -28,39 +30,28 @@ function linkSpan(el: HTMLElement, cls: string, label: string, target: string): 
 }
 
 /**
- * Inline markdown for node titles.
+ * How each inline rule becomes DOM.
  *
- * Deliberately small and DOM-based: every value goes in as text, never as HTML,
- * so a note can never inject markup into the map.
+ * The rules themselves live in `model/inlineText.ts`, where the search reads
+ * them too. A `Record` over the kinds is what keeps the two halves together: a
+ * rule added there without an emitter here is a compile error, not a token that
+ * silently renders as nothing.
+ *
+ * Deliberately DOM-based throughout: every value goes in as text, never as
+ * HTML, so a note can never inject markup into the map.
  */
-const PATTERNS: Array<[RegExp, Emit]> = [
-	[/`([^`]+)`/g, (m, el) => el.createEl("code", { cls: "mm-code", text: m[1] })],
-	[/\*\*([^*]+)\*\*/g, (m, el, ctx) => renderRange(el.createEl("strong"), m[1], ctx)],
-	[/__([^_]+)__/g, (m, el, ctx) => renderRange(el.createEl("strong"), m[1], ctx)],
-	[/~~([^~]+)~~/g, (m, el, ctx) => renderRange(el.createEl("del"), m[1], ctx)],
-	[/==([^=]+)==/g, (m, el, ctx) => renderRange(el.createEl("mark"), m[1], ctx)],
-	[/\*([^*]+)\*/g, (m, el, ctx) => renderRange(el.createEl("em"), m[1], ctx)],
-	[
-		/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
-		(m, el) => linkSpan(el, "mm-link", m[2] ?? m[1], m[1]),
-	],
-	[
-		/\[([^\]]+)\]\(([^)]+)\)/g,
-		(m, el) => linkSpan(el, "mm-link", m[1], m[2]),
-	],
-	[
-		/!\[\[([^\]]+)\]\]/g,
-		(m, el) => linkSpan(el, "mm-embed", m[1], m[1]),
-	],
-];
+const EMIT: Record<InlineKind, Emit> = {
+	code: (m, el) => el.createEl("code", { cls: "mm-code", text: m[1] }),
+	strong: (m, el, ctx) => renderRange(el.createEl("strong"), m[1], ctx),
+	strike: (m, el, ctx) => renderRange(el.createEl("del"), m[1], ctx),
+	highlight: (m, el, ctx) => renderRange(el.createEl("mark"), m[1], ctx),
+	em: (m, el, ctx) => renderRange(el.createEl("em"), m[1], ctx),
+	wikilink: (m, el) => linkSpan(el, "mm-link", m[2] ?? m[1], m[1]),
+	link: (m, el) => linkSpan(el, "mm-link", m[1], m[2]),
+	embed: (m, el) => linkSpan(el, "mm-embed", m[1], m[1]),
+};
 
-/**
- * Math goes in front so that on the rare exact-index tie the strict `<` in
- * `nextToken` awards the token to the formula. Everything past that is decided
- * by earliest-match-wins, which is what keeps `$a_b$` away from the `__` rule
- * and `$x*y*z$` away from the `*` rule.
- */
-const ALL_PATTERNS: Array<[RegExp, Emit]> = [
+const MATH_PATTERNS: Array<[RegExp, Emit]> = [
 	[
 		MATH_DISPLAY,
 		(m, el, ctx) => {
@@ -75,7 +66,6 @@ const ALL_PATTERNS: Array<[RegExp, Emit]> = [
 			renderMathInto(el, m[1], false);
 		},
 	],
-	...PATTERNS,
 ];
 
 interface Token {
@@ -84,9 +74,15 @@ interface Token {
 	emit: (el: HTMLElement) => void;
 }
 
+/**
+ * Math is scanned first and an inline token only adopted on a strict `<`, so a
+ * formula wins an exact-index tie. Everything past that is decided by
+ * earliest-match-wins, which is what keeps `$a_b$` away from the `__` rule and
+ * `$x*y*z$` away from the `*` rule.
+ */
 function nextToken(text: string, from: number, ctx: InlineContext): Token | null {
 	let best: Token | null = null;
-	for (const [re, emit] of ALL_PATTERNS) {
+	for (const [re, emit] of MATH_PATTERNS) {
 		re.lastIndex = from;
 		const m = re.exec(text);
 		if (!m) continue;
@@ -97,6 +93,15 @@ function nextToken(text: string, from: number, ctx: InlineContext): Token | null
 				emit: (el) => emit(m, el, ctx),
 			};
 		}
+	}
+	const inline = nextInlineToken(text, from);
+	if (inline && (best === null || inline.start < best.start)) {
+		const emit = EMIT[inline.rule.kind];
+		best = {
+			start: inline.start,
+			end: inline.end,
+			emit: (el) => emit(inline.match, el, ctx),
+		};
 	}
 	return best;
 }

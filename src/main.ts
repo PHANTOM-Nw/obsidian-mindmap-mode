@@ -87,6 +87,20 @@ export default class MindmapPlugin extends Plugin {
 			},
 		});
 
+		// No default hotkey: the map already takes Ctrl/Cmd+F for itself while it
+		// has the keyboard, and claiming it globally would show up as a conflict
+		// against Obsidian's own search in every other view.
+		this.addCommand({
+			id: "search-mindmap",
+			name: "Find in the mind map",
+			checkCallback: (checking) => {
+				const view = this.app.workspace.getActiveViewOfType(MindmapView);
+				if (!view) return false;
+				if (!checking) view.openSearch();
+				return true;
+			},
+		});
+
 		this.addCommand({
 			id: "open-as-mindmap",
 			name: "Open current note as a mind map",

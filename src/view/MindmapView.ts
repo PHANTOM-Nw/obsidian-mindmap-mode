@@ -23,6 +23,9 @@ import {
 } from "../model/mutate.ts";
 import type { Mutation } from "../model/mutate.ts";
 
+import { hiddenAncestorKeys, searchTree } from "../model/search.ts";
+import type { SearchQuery } from "../model/search.ts";
+
 import { createLayoutNode, layoutTree } from "../layout/tidyTree.ts";
 import type { LayoutNode } from "../layout/tidyTree.ts";
 import { Canvas } from "./canvas.ts";
@@ -30,6 +33,7 @@ import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
 import { attachInteractions } from "./interactions.ts";
+import { SearchBar } from "./searchBar.ts";
 import { BlockDialog } from "./blockDialog.ts";
 import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
 import { ensureMath, finishRenderMath, mathAvailable, mathSettled } from "./math.ts";
@@ -139,6 +143,23 @@ export class MindmapView extends TextFileView implements MapController {
 	private undoStack: string[] = [];
 	private redoStack: string[] = [];
 
+	private search: SearchBar | null = null;
+	/** Kept when the bar closes, dropped when the file changes. */
+	private searchQuery: SearchQuery = { text: "", regex: false };
+	/** The current match list, in document order. */
+	private matchKeys: string[] = [];
+	private matchIndex = 0;
+	/**
+	 * Branches this search session opened to show a match.
+	 *
+	 * Folded again when the bar closes, so a search leaves the map -- and the
+	 * remembered fold state -- in the shape the user left it in. A branch they
+	 * fold or unfold themselves meanwhile is theirs and drops out of the set.
+	 */
+	private searchRevealed = new Set<string>();
+	/** A match to bring into view once the next paint has measured it. */
+	private pendingReveal: string | null = null;
+
 	private detachInteractions: (() => void) | null = null;
 	private popover: HTMLElement | null = null;
 	private dialog: BlockDialog | null = null;
@@ -186,6 +207,10 @@ export class MindmapView extends TextFileView implements MapController {
 	override setViewData(data: string, clear: boolean): void {
 		this.data = data;
 		if (clear) {
+			// Torn down without restoring folds: `this.file` already points at the
+			// new note, so a restore would write this map's shape onto that path.
+			this.resetSearch();
+			this.searchQuery = { text: "", regex: false };
 			this.collapsedKeys.clear();
 			this.selectionKey = null;
 			this.restoreFocusKey = null;
@@ -205,6 +230,8 @@ export class MindmapView extends TextFileView implements MapController {
 		this.parsed = null;
 		this.layoutNodes = [];
 		this.elements.clear();
+		this.resetSearch();
+		this.searchQuery = { text: "", regex: false };
 		this.collapsedKeys.clear();
 		this.selectionKey = null;
 		this.restoreFocusKey = null;
@@ -230,6 +257,10 @@ export class MindmapView extends TextFileView implements MapController {
 
 	override async onClose(): Promise<void> {
 		this.paintToken++;
+		// Closing the tab is the last chance to keep a search out of the record:
+		// what reaches disk has to be the fold shape the user chose.
+		if (this.restoreSearchFolds()) this.rememberState();
+		this.resetSearch();
 		this.detachInteractions?.();
 		this.detachInteractions = null;
 		this.closePopover();
@@ -289,6 +320,7 @@ export class MindmapView extends TextFileView implements MapController {
 		button("crosshair", "Centre on selection", () => this.centreOnSelection());
 		button("chevrons-up-down", "Expand all", () => this.expandAll());
 		button("chevrons-down-up", "Collapse all", () => this.collapseAll());
+		button("search", "Find in the map", () => this.openSearch());
 		button("help-circle", "Keyboard shortcuts", () => this.showShortcuts());
 	}
 
@@ -311,6 +343,7 @@ export class MindmapView extends TextFileView implements MapController {
 			["Ctrl/Cmd+Enter", "Cycle the checkbox"],
 			["Ctrl/Cmd+Z", "Undo (Shift to redo)"],
 			["Ctrl/Cmd+0", "Fit to window"],
+			["Ctrl/Cmd+F", "Find in the map (Enter / Shift+Enter to step)"],
 		];
 
 		const panel = this.openPopover();
@@ -345,6 +378,10 @@ export class MindmapView extends TextFileView implements MapController {
 			this.foldSeedPending = false;
 			this.seedFolds();
 		}
+
+		// An edit or an external change can add, remove or rename a match, and
+		// the highlight has to follow the note rather than the stale class list.
+		this.refreshSearch();
 
 		if (this.pendingFocus) {
 			const focus = this.pendingFocus;
@@ -387,6 +424,9 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private foldFrom(depth: number): void {
 		this.collapsedKeys = this.collapsedAtDepth(depth);
+		// The whole fold shape is being replaced, so there is nothing left for a
+		// search to put back.
+		this.searchRevealed.clear();
 	}
 
 	/**
@@ -700,6 +740,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 		const wasFitting = this.needsFit;
 		const wasFocusing = this.restoreFocusKey;
+		const wasRevealing = this.pendingReveal;
 		this.measureAndPlace(rootLayout, visible, anchor);
 		if (!sawMath) return;
 
@@ -714,6 +755,9 @@ export class MindmapView extends TextFileView implements MapController {
 					this.needsFit = true;
 					this.restoreFocusKey = wasFocusing;
 				}
+				// Outside the guard on purpose: a jump has to be honoured on the
+				// map that formulas were actually rendered into, fit or no fit.
+				this.pendingReveal = wasRevealing;
 				this.paint();
 			});
 			return;
@@ -730,6 +774,7 @@ export class MindmapView extends TextFileView implements MapController {
 				this.needsFit = true;
 				this.restoreFocusKey = wasFocusing;
 			}
+			this.pendingReveal = wasRevealing;
 			this.measureAndPlace(rootLayout, visible, anchor);
 		});
 	}
@@ -783,6 +828,14 @@ export class MindmapView extends TextFileView implements MapController {
 		this.layoutNodes = result.nodes;
 
 		this.applySelection();
+		this.applySearchState();
+
+		// Read here, past the `paintedEmpty` return and before the framing
+		// branches: a map painted while hidden keeps its jump until `onResize`
+		// repaints it, and a jump that survives the read is spent either way.
+		const reveal = this.pendingReveal;
+		this.pendingReveal = null;
+
 		if (this.needsFit) {
 			// A first look at the map reframes it deliberately; holding a node
 			// still would fight that. Where it reframes *to* is the one thing a
@@ -799,9 +852,17 @@ export class MindmapView extends TextFileView implements MapController {
 			}
 			return;
 		}
-		if (!anchor) return;
-		const held = result.nodes.find((l) => l.node.key === anchor.key);
-		if (held) this.canvas.placeAt(held.x, held.y, anchor.screenX, anchor.screenY);
+		if (anchor) {
+			const held = result.nodes.find((l) => l.node.key === anchor.key);
+			if (held) this.canvas.placeAt(held.x, held.y, anchor.screenX, anchor.screenY);
+		}
+		// After the anchor, never before it: holding a node still re-origins the
+		// whole map, and the smallest pan that brings a match into view is only
+		// the smallest one once the map has stopped moving.
+		if (reveal !== null) {
+			const target = result.nodes.find((l) => l.node.key === reveal);
+			if (target) this.canvas.reveal(target.x, target.y, target.width, target.height);
+		}
 	}
 
 	private applySelection(): void {
@@ -938,6 +999,13 @@ export class MindmapView extends TextFileView implements MapController {
 			} else if (ev.key === "Escape") {
 				ev.preventDefault();
 				finish(false);
+			} else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "f") {
+				// The `stopPropagation` above swallows everything, so search has
+				// to be let out by name. The rename is committed first, so the
+				// query runs against the text the user just typed.
+				ev.preventDefault();
+				finish(true);
+				this.openSearch();
 			}
 		});
 		el.addEventListener("blur", () => finish(true), { once: true });
@@ -997,6 +1065,9 @@ export class MindmapView extends TextFileView implements MapController {
 			// Has to agree with the `hasChildren` that decided whether to draw the
 			// toggle at all, or the button exists and does nothing.
 			if (this.childCount(node, this.plugin.settings.showBodyNodes) === 0) return;
+			// Folded or unfolded by hand: the branch is the user's from here on,
+			// and closing the search must not undo what they just did.
+			this.searchRevealed.delete(node.key);
 			this.markAnchor(node.key);
 			if (this.collapsedKeys.has(node.key)) this.collapsedKeys.delete(node.key);
 			else this.collapsedKeys.add(node.key);
@@ -1233,6 +1304,187 @@ export class MindmapView extends TextFileView implements MapController {
 		const layout = id ? this.layoutFor(id) : null;
 		if (!layout) return;
 		this.canvas.reveal(layout.x, layout.y, layout.width, layout.height);
+	}
+
+	// --- search ---------------------------------------------------------------
+
+	/** Put the find bar up, or hand it the focus when it is already there. */
+	openSearch(): void {
+		if (this.search) {
+			this.search.focus();
+			return;
+		}
+		this.search = new SearchBar(this.contentEl, {
+			query: this.searchQuery,
+			onQuery: (query) => this.onQueryChanged(query),
+			onStep: (delta) => this.stepMatch(delta),
+			onClose: () => {
+				this.closeSearch();
+			},
+		});
+		// A remembered query is run again rather than replayed: the note may well
+		// have changed since the bar was last closed.
+		this.refreshSearch();
+		this.applySearchState();
+		this.search.focus();
+	}
+
+	/** True when a bar was actually up, which is what makes Escape ours. */
+	closeSearch(): boolean {
+		if (!this.search) return false;
+		const refolded = this.restoreSearchFolds();
+		this.resetSearch();
+		if (refolded) {
+			this.markGlobalAnchor();
+			this.paint();
+		} else {
+			this.applySearchState();
+		}
+		this.canvas.viewport.focus({ preventScroll: true });
+		return true;
+	}
+
+	/** Take the bar down and drop the match list. Folds are left as they are. */
+	private resetSearch(): void {
+		this.search?.destroy();
+		this.search = null;
+		this.matchKeys = [];
+		this.matchIndex = 0;
+		this.pendingReveal = null;
+		// The bookkeeping only means something while a session runs; whoever
+		// wanted those branches folded again has already asked for it.
+		this.searchRevealed.clear();
+	}
+
+	private currentMatchKey(): string | null {
+		return this.matchKeys[this.matchIndex] ?? null;
+	}
+
+	/**
+	 * Recompute the match list against the current parse, keeping the current
+	 * match when it survived.
+	 *
+	 * Never touches the camera: this runs on every render, including the one
+	 * behind every keystroke of an inline edit.
+	 */
+	private refreshSearch(): void {
+		if (!this.search) return;
+		const current = this.currentMatchKey();
+		const result = this.parsed
+			? searchTree(this.parsed.root, this.searchQuery)
+			: { matches: [], invalid: false };
+		this.matchKeys = result.matches.map((match) => match.key);
+		const index = current === null ? -1 : this.matchKeys.indexOf(current);
+		this.matchIndex = index < 0 ? 0 : index;
+		this.search.setStatus(
+			this.matchKeys.length === 0 ? 0 : this.matchIndex + 1,
+			this.matchKeys.length,
+			result.invalid,
+		);
+	}
+
+	private onQueryChanged(query: SearchQuery): void {
+		this.searchQuery = query;
+		const before = this.currentMatchKey();
+		this.refreshSearch();
+		const after = this.currentMatchKey();
+		// Only a change of match moves the map. Typing on past a hit that still
+		// matches leaves the camera where it is, rather than pulling it back to
+		// the same card once per keystroke.
+		if (after !== null && after !== before) this.jumpToCurrent();
+		else this.applySearchState();
+	}
+
+	private stepMatch(delta: number): void {
+		const total = this.matchKeys.length;
+		if (total === 0) return;
+		this.matchIndex = (this.matchIndex + delta + total) % total;
+		this.search?.setStatus(this.matchIndex + 1, total, false);
+		this.jumpToCurrent();
+	}
+
+	/** Bring the current match on screen, opening whatever is hiding it. */
+	private jumpToCurrent(): void {
+		const key = this.currentMatchKey();
+		const node = key === null ? undefined : this.parsed?.byKey.get(key);
+		if (key === null || !node) return;
+
+		if (!this.isVisible(node)) {
+			// Anchored before the selection moves, so the part of the map the user
+			// is looking at holds still while the branch opens under it.
+			this.markGlobalAnchor();
+			this.select(node.id);
+			this.revealForSearch(node);
+			// The card does not exist yet; the paint that builds it does the pan.
+			this.pendingReveal = key;
+			this.paint();
+			return;
+		}
+		this.select(node.id);
+		this.applySearchState();
+		this.revealSelection();
+	}
+
+	/**
+	 * Open only the ancestors actually in the way, and remember which.
+	 *
+	 * Not `revealAncestors`: that clears the whole chain, and a key deleted from
+	 * a set that never held it would still be recorded as a fold the search
+	 * opened -- and dutifully closed again on the way out.
+	 */
+	private revealForSearch(node: MindNode): void {
+		for (const key of hiddenAncestorKeys(node, this.collapsedKeys)) {
+			this.collapsedKeys.delete(key);
+			this.searchRevealed.add(key);
+		}
+	}
+
+	/**
+	 * Fold back what this session opened, reporting whether anything moved.
+	 *
+	 * A key the note no longer has, and one the user has since folded themselves,
+	 * are both simply dropped.
+	 */
+	private restoreSearchFolds(): boolean {
+		if (this.searchRevealed.size === 0) return false;
+		const showBody = this.plugin.settings.showBodyNodes;
+		let changed = false;
+		for (const key of this.searchRevealed) {
+			const node = this.parsed?.byKey.get(key);
+			if (!node || this.childCount(node, showBody) === 0) continue;
+			if (this.collapsedKeys.has(key)) continue;
+			this.collapsedKeys.add(key);
+			changed = true;
+		}
+		this.searchRevealed.clear();
+		if (!changed) return false;
+
+		// The selection may have just been folded away. The fold wins -- the same
+		// rule `seedFolds` follows -- and the card that swallowed it takes over,
+		// so the keyboard is never left aimed at something off the map.
+		const selected = this.selectedNode();
+		const hidden = selected ? hiddenAncestorKeys(selected, this.collapsedKeys) : [];
+		if (hidden.length > 0) this.selectionKey = hidden[0];
+		return true;
+	}
+
+	/**
+	 * Redraw the rings from the current match list.
+	 *
+	 * Stripped and rebuilt through `byKey` every time: a paint hands out new
+	 * elements, and a match inside a folded branch has no card to mark at all.
+	 */
+	private applySearchState(): void {
+		for (const element of this.elements.values()) {
+			element.el.removeClasses(["is-search-match", "is-search-current"]);
+		}
+		if (!this.search || !this.parsed) return;
+		const current = this.currentMatchKey();
+		for (const key of this.matchKeys) {
+			const node = this.parsed.byKey.get(key);
+			const element = node ? this.elements.get(node.id) : undefined;
+			element?.el.addClass(key === current ? "is-search-current" : "is-search-match");
+		}
 	}
 
 	// --- popovers -------------------------------------------------------------
