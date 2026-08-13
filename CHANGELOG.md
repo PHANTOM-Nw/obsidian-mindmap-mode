@@ -11,6 +11,14 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.0.7] - 2026-08-13
+
+### 新增 / Added
+
+- 导图现在自带查找：按 `Ctrl`/`Cmd`+`F` 打开查找条，输入即搜，计数显示第几个/共几个，`Enter` / `Shift`+`Enter` 在命中之间来回跳，`Esc` 关闭。工具栏多了一个查找按钮，命令面板里也有 *Find in the mind map*，想自定义快捷键就绑它。<br>The map can now find things: `Ctrl`/`Cmd`+`F` opens a find bar that searches as you type, counts which match you are on, steps with `Enter` / `Shift`+`Enter` and closes with `Esc`. There is a find button on the toolbar too, and a *Find in the mind map* command for binding your own hotkey.
+- 匹配的是卡片上看到的文字，不是原始 Markdown：`**bold** text` 能被"bold text"搜到，`[[note|Label]]` 只按"Label"命中，公式按它的 TeX 源码命中。`.*` 按钮切换成正则；两种方式都不区分大小写。<br>Matching follows the text you see on the card, not the raw markdown: `**bold** text` is found by "bold text", `[[note|Label]]` by "Label" alone, and a formula by its TeX source. The `.*` toggle switches to a regular expression; both modes are case-insensitive.
+- 跳到折叠分支里的命中会自动把它展开；关闭查找条时，搜索展开的分支折回原样，你自己手动展开的保持不动。<br>Stepping to a match inside a folded branch opens it on the way; closing the bar folds back what the search opened and leaves anything you opened yourself alone.
+
 ## [1.0.6] - 2026-08-09
 
 ### 新增 / Added
