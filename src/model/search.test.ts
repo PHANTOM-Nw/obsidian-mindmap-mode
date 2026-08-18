@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { parseMarkdown } from "./parse.ts";
-import { hiddenAncestorKeys, searchTree } from "./search.ts";
+import { hiddenAncestorKeys, refoldKeys, searchTree } from "./search.ts";
 import { walk } from "./types.ts";
 import type { MindNode, ParsedDoc } from "./types.ts";
 
@@ -146,4 +146,29 @@ test("hiddenAncestorKeys names only the ancestors actually in the way", () => {
 	]);
 	// A node collapsed in its own right is not hiding itself.
 	assert.deepEqual(hiddenAncestorKeys(target, new Set([target.key])), []);
+});
+
+test("refoldKeys hands back every branch except the one holding the match", () => {
+	const deep = nodeNamed(doc, "Deep");
+	const one = nodeNamed(doc, "one");
+	const two = nodeNamed(doc, "two");
+	const three = nodeNamed(doc, "three");
+	const target = nodeNamed(doc, "deep focus target");
+	const elsewhere = nodeNamed(doc, "**bold** text");
+
+	const revealed = new Set([deep.key, one.key, two.key, three.key, elsewhere.key]);
+
+	// Nothing left to keep: everything the search opened goes back.
+	assert.deepEqual(new Set(refoldKeys(revealed, null)), revealed);
+
+	// The chain that keeps the match on the map survives whole, the branch four
+	// levels up included; the unrelated branch does not.
+	assert.deepEqual(refoldKeys(revealed, target), [elsewhere.key]);
+
+	// A node is not its own ancestor, and neither is anything below it: keeping
+	// `two` keeps only what is above `two`.
+	assert.deepEqual(new Set(refoldKeys(revealed, two)), new Set([two.key, three.key, elsewhere.key]));
+
+	// A match nothing was opened for still costs nothing.
+	assert.deepEqual(refoldKeys(new Set(), target), []);
 });

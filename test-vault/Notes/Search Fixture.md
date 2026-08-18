@@ -38,12 +38,17 @@ walk them in file order and `Shift`+`Enter` back, wrapping round both ways.
 ## A branch that opens itself
 
 Folded when the note opens, and so is every level inside it. Searching for
-"buried" has to open four levels and pan the card into view; closing the bar
-folds all four again, and the selection lands on this section's own card,
-because that is what swallowed it.
+"buried" has to open four levels and pan the card into view.
+
+Turn the `.*` toggle on and search `focus|buried` to watch a branch handed back:
+stepping onto "buried target" opens the four levels, and stepping on to the next
+match folds all four again, because a branch stays open only while the match
+inside it is the one you are looking at. Stop on "buried target" and close the
+bar and the path to it stays open instead, with the card still selected — only
+the branches the search is no longer using go back.
 
 Open `three` by hand while the bar is up and it stays open afterwards — only the
-folds the search made are put back.
+folds the search made are ever put back.
 
 - one
 	- two

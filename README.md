@@ -85,10 +85,12 @@ does not compile just marks the box red rather than throwing. There is also a
 Nodes are matched on the text you can see: `**bold** text` is found by "bold
 text", and `[[note|Label]]` by "Label" but never by "note". A formula is matched
 as its TeX source. Stepping to a match inside a folded branch opens it, and
-closing the bar folds it back — branches you opened yourself while searching stay
-open. In this version whole matched cards are ringed rather than the matched
-substring, and note-content cards (paragraphs, code blocks, tables) are not
-searched.
+stepping onwards folds that branch back again, so walking a query does not leave
+the map spread open behind you. Closing the bar puts back the rest and keeps only
+the path to the match you stopped on, still selected and on screen — and branches
+you opened yourself while searching stay open throughout. In this version whole
+matched cards are ringed rather than the matched substring, and note-content
+cards (paragraphs, code blocks, tables) are not searched.
 
 Dragging across the heading/list boundary converts the moved block for you. Drop
 a heading onto a bullet and the whole subtree becomes nested bullets; drop a

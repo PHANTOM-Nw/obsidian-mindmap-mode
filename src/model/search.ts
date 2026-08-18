@@ -79,3 +79,22 @@ export function hiddenAncestorKeys(node: MindNode, collapsed: ReadonlySet<string
 	}
 	return keys.reverse();
 }
+
+/**
+ * The keys a search recorded that are owed a fold again, given the one match it
+ * still has to keep on the map.
+ *
+ * A branch opened to show a match is only owed that for as long as that match is
+ * the one being looked at, so stepping away hands every other recorded key back.
+ * `keep`'s own ancestors are the exception: folding one of those would put the
+ * card the caller just found straight back out of sight. `keep` itself is not an
+ * exception -- a folded node still draws its own card, so nothing is lost.
+ *
+ * `null` keeps nothing, which is how "there is no match any more" is spelled.
+ * Order is the set's own; every caller folds all of them.
+ */
+export function refoldKeys(revealed: ReadonlySet<string>, keep: MindNode | null): string[] {
+	const spared = new Set<string>();
+	for (let p: MindNode | null = keep?.parent ?? null; p; p = p.parent) spared.add(p.key);
+	return [...revealed].filter((key) => !spared.has(key));
+}

@@ -327,9 +327,11 @@ export function attachInteractions(controller: MapController): () => void {
 			controller.centreOnSelection();
 			return;
 		}
-		// Obsidian's own Ctrl+F belongs to the markdown editor, which this view
-		// replaced. Taken here rather than as a plugin hotkey so it is only ever
-		// claimed while a map has the keyboard.
+		// The map's own Ctrl/Cmd+F. The view's keymap scope is what normally
+		// claims it -- this handler needs the viewport to hold the DOM focus,
+		// which it only does once a card has been clicked -- so this is the
+		// fallback for builds predating `View.scope`. `openSearch` is idempotent,
+		// so the two paths overlapping costs nothing.
 		if (mod && ev.key.toLowerCase() === "f") {
 			ev.preventDefault();
 			controller.openSearch();
@@ -392,7 +394,9 @@ export function attachInteractions(controller: MapController): () => void {
 				return;
 			case "Escape":
 				// Only ours while a search is open; otherwise Escape keeps
-				// whatever meaning Obsidian gives it.
+				// whatever meaning Obsidian gives it. The view's scope registers
+				// the same key on the same terms; whichever sees it first, the
+				// second call finds no bar left to close.
 				if (!controller.closeSearch()) return;
 				ev.preventDefault();
 				return;

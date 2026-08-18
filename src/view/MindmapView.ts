@@ -1,4 +1,4 @@
-import { Keymap, Menu, Notice, TextFileView, setIcon } from "obsidian";
+import { Keymap, Menu, Notice, Scope, TextFileView, setIcon } from "obsidian";
 import type { TFile, WorkspaceLeaf } from "obsidian";
 
 import { parseMarkdown } from "../model/parse.ts";
@@ -23,7 +23,7 @@ import {
 } from "../model/mutate.ts";
 import type { Mutation } from "../model/mutate.ts";
 
-import { hiddenAncestorKeys, searchTree } from "../model/search.ts";
+import { hiddenAncestorKeys, refoldKeys, searchTree } from "../model/search.ts";
 import type { SearchQuery } from "../model/search.ts";
 
 import { createLayoutNode, layoutTree } from "../layout/tidyTree.ts";
@@ -152,9 +152,13 @@ export class MindmapView extends TextFileView implements MapController {
 	/**
 	 * Branches this search session opened to show a match.
 	 *
-	 * Folded again when the bar closes, so a search leaves the map -- and the
-	 * remembered fold state -- in the shape the user left it in. A branch they
-	 * fold or unfold themselves meanwhile is theirs and drops out of the set.
+	 * Handed back as the session moves rather than all at once at the end:
+	 * stepping to a match elsewhere folds every recorded branch that is not on the
+	 * new match's own path, so the map never accumulates the trail of a search.
+	 * Closing the bar folds the rest -- except that same path, because the card
+	 * the query was asked for has to still be there once the bar is gone. A branch
+	 * the user folds or unfolds themselves meanwhile is theirs and drops out of
+	 * the set.
 	 */
 	private searchRevealed = new Set<string>();
 	/** A match to bring into view once the next paint has measured it. */
@@ -184,6 +188,39 @@ export class MindmapView extends TextFileView implements MapController {
 		});
 		this.canvas.viewport.tabIndex = 0;
 		this.buildToolbar();
+		this.scope = this.buildScope();
+	}
+
+	/**
+	 * The hotkeys a map owns while its tab is the active one.
+	 *
+	 * Obsidian pushes a view's scope whenever its leaf is active, whatever inside
+	 * the view happens to hold the DOM focus -- which is the whole point: the
+	 * viewport handler in `interactions.ts` only fires once a card has been
+	 * clicked, so a map that was just opened saw no Ctrl/Cmd+F at all. That
+	 * handler stays as the fallback for builds older than `View.scope` (1.5.7,
+	 * against a `minAppVersion` of 1.5.0), where this property is simply never
+	 * read.
+	 */
+	private buildScope(): Scope {
+		const scope = new Scope(this.app.scope);
+		// Obsidian matches a registered key against an interpreted "virtual key",
+		// and which case it normalises a letter to is not part of the public API:
+		// `hotkeys.json` spells them uppercase, a KeyboardEvent reports "f". Both
+		// spellings are registered rather than betting on one -- `openSearch` is
+		// idempotent, so a keymap that ran both would merely focus the bar twice.
+		for (const key of ["F", "f"]) {
+			scope.register(["Mod"], key, (evt) => {
+				evt.preventDefault();
+				this.openSearch();
+				return false;
+			});
+		}
+		// Escape is only ours while a bar is up. Returning anything but `false`
+		// hands the key straight on, so every other meaning it has in Obsidian is
+		// left alone.
+		scope.register([], "Escape", () => !this.closeSearch());
+		return scope;
 	}
 
 	// --- Obsidian plumbing ---------------------------------------------------
@@ -1001,8 +1038,10 @@ export class MindmapView extends TextFileView implements MapController {
 				finish(false);
 			} else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "f") {
 				// The `stopPropagation` above swallows everything, so search has
-				// to be let out by name. The rename is committed first, so the
-				// query runs against the text the user just typed.
+				// to be let out by name -- the view's keymap scope cannot be
+				// relied on to have seen a key this editor stopped. The rename is
+				// committed first, so the query runs against the text the user
+				// just typed.
 				ev.preventDefault();
 				finish(true);
 				this.openSearch();
@@ -1360,6 +1399,13 @@ export class MindmapView extends TextFileView implements MapController {
 		return this.matchKeys[this.matchIndex] ?? null;
 	}
 
+	/** The node the current match names, or null once the note has lost it. */
+	private currentMatchNode(): MindNode | null {
+		const key = this.currentMatchKey();
+		if (key === null) return null;
+		return this.parsed?.byKey.get(key) ?? null;
+	}
+
 	/**
 	 * Recompute the match list against the current parse, keeping the current
 	 * match when it survived.
@@ -1403,26 +1449,39 @@ export class MindmapView extends TextFileView implements MapController {
 		this.jumpToCurrent();
 	}
 
-	/** Bring the current match on screen, opening whatever is hiding it. */
+	/**
+	 * Bring the current match on screen: fold back what the search opened for the
+	 * match before it, then open whatever is hiding this one.
+	 *
+	 * A branch is only owed its open state while the match inside it is the one
+	 * being looked at, so a step across the map puts the last one away again --
+	 * both changes in a single paint, or the map would shuffle twice per step.
+	 */
 	private jumpToCurrent(): void {
 		const key = this.currentMatchKey();
 		const node = key === null ? undefined : this.parsed?.byKey.get(key);
 		if (key === null || !node) return;
 
-		if (!this.isVisible(node)) {
-			// Anchored before the selection moves, so the part of the map the user
-			// is looking at holds still while the branch opens under it.
-			this.markGlobalAnchor();
-			this.select(node.id);
-			this.revealForSearch(node);
-			// The card does not exist yet; the paint that builds it does the pan.
-			this.pendingReveal = key;
-			this.paint();
+		// Read before anything folds: whatever the user is looking at now is what
+		// has to hold still while branches open and close under it.
+		const held = this.selectedNode();
+
+		// The selection moves first, so the fold that follows is deciding about a
+		// branch the selection has already left.
+		this.select(node.id);
+		const refolded = this.refoldSearch(node);
+		const revealed = this.revealForSearch(node);
+		if (!refolded && !revealed) {
+			this.applySearchState();
+			this.revealSelection();
 			return;
 		}
-		this.select(node.id);
-		this.applySearchState();
-		this.revealSelection();
+
+		// A card the refold just hid cannot hold anything still; the root can.
+		this.markAnchor(held && this.isVisible(held) ? held.key : this.parsed?.root.key);
+		// The card may not exist yet; the paint that builds it does the pan.
+		this.pendingReveal = key;
+		this.paint();
 	}
 
 	/**
@@ -1432,36 +1491,60 @@ export class MindmapView extends TextFileView implements MapController {
 	 * a set that never held it would still be recorded as a fold the search
 	 * opened -- and dutifully closed again on the way out.
 	 */
-	private revealForSearch(node: MindNode): void {
+	private revealForSearch(node: MindNode): boolean {
+		let opened = false;
 		for (const key of hiddenAncestorKeys(node, this.collapsedKeys)) {
 			this.collapsedKeys.delete(key);
 			this.searchRevealed.add(key);
+			opened = true;
 		}
+		return opened;
 	}
 
 	/**
-	 * Fold back what this session opened, reporting whether anything moved.
+	 * Fold back the recorded branches that are not holding `keep` on the map, and
+	 * drop every key it decided about from the record.
 	 *
 	 * A key the note no longer has, and one the user has since folded themselves,
-	 * are both simply dropped.
+	 * are both simply dropped. Reports whether the map actually changed shape.
 	 */
-	private restoreSearchFolds(): boolean {
+	private refoldSearch(keep: MindNode | null): boolean {
 		if (this.searchRevealed.size === 0) return false;
 		const showBody = this.plugin.settings.showBodyNodes;
 		let changed = false;
-		for (const key of this.searchRevealed) {
+		for (const key of refoldKeys(this.searchRevealed, keep)) {
+			this.searchRevealed.delete(key);
 			const node = this.parsed?.byKey.get(key);
 			if (!node || this.childCount(node, showBody) === 0) continue;
 			if (this.collapsedKeys.has(key)) continue;
 			this.collapsedKeys.add(key);
 			changed = true;
 		}
+		return changed;
+	}
+
+	/**
+	 * Wind the session up: fold back what it opened, except the path to the match
+	 * it ended on. Reports whether anything moved.
+	 *
+	 * The one branch a search may leave behind is the one holding what it found --
+	 * closing the bar is not a reason to hide the card that answered the query,
+	 * and putting it away is a fold the user can ask for themselves. When the
+	 * match has been edited away there is nothing to keep, and the whole record
+	 * goes back.
+	 */
+	private restoreSearchFolds(): boolean {
+		if (this.searchRevealed.size === 0) return false;
+		const changed = this.refoldSearch(this.currentMatchNode());
+		// Whatever survived is the kept path, and the session is over: those
+		// branches belong to the map now rather than to the search.
 		this.searchRevealed.clear();
 		if (!changed) return false;
 
-		// The selection may have just been folded away. The fold wins -- the same
-		// rule `seedFolds` follows -- and the card that swallowed it takes over,
-		// so the keyboard is never left aimed at something off the map.
+		// The selection may have just been folded away -- it sits wherever the user
+		// last clicked, which is not necessarily the match. The fold wins -- the
+		// same rule `seedFolds` follows -- and the card that swallowed it takes
+		// over, so the keyboard is never left aimed at something off the map.
 		const selected = this.selectedNode();
 		const hidden = selected ? hiddenAncestorKeys(selected, this.collapsedKeys) : [];
 		if (hidden.length > 0) this.selectionKey = hidden[0];
