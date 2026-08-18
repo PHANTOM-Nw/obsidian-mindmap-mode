@@ -330,8 +330,8 @@ export function attachInteractions(controller: MapController): () => void {
 		// The map's own Ctrl/Cmd+F. The view's keymap scope is what normally
 		// claims it -- this handler needs the viewport to hold the DOM focus,
 		// which it only does once a card has been clicked -- so this is the
-		// fallback for builds predating `View.scope`. `openSearch` is idempotent,
-		// so the two paths overlapping costs nothing.
+		// belt to that pair of braces. `openSearch` is idempotent, so the two
+		// paths overlapping costs nothing.
 		if (mod && ev.key.toLowerCase() === "f") {
 			ev.preventDefault();
 			controller.openSearch();

@@ -19,6 +19,10 @@ the entry has to read correctly in both.
 - 匹配的是卡片上看到的文字，不是原始 Markdown：`**bold** text` 能被"bold text"搜到，`[[note|Label]]` 只按"Label"命中，公式按它的 TeX 源码命中。`.*` 按钮切换成正则；两种方式都不区分大小写。<br>Matching follows the text you see on the card, not the raw markdown: `**bold** text` is found by "bold text", `[[note|Label]]` by "Label" alone, and a formula by its TeX source. The `.*` toggle switches to a regular expression; both modes are case-insensitive.
 - 跳到折叠分支里的命中会自动把它展开；走到下一个命中时，上一处为搜索展开的分支随即折回，关闭查找条时其余的也一并折回 —— 只留下你最后停在的那个命中所在的路径，那张卡片依然选中可见。你自己手动展开的分支始终不动。<br>Stepping to a match inside a folded branch opens it on the way, and stepping onwards folds that branch back again; closing the bar folds back the rest and keeps only the path to the match you stopped on, with that card still selected. Anything you opened yourself is left alone.
 
+### 变更 / Changed
+
+- 最低支持的 Obsidian 版本从 1.5.0 提高到 1.5.7：查找条的 `Ctrl`/`Cmd`+`F` 依赖 1.5.7 才有的视图级快捷键作用域，这样只要导图标签页是活动的它就能响应，而不必先点一下卡片。<br>The minimum Obsidian version rises from 1.5.0 to 1.5.7: the find bar's `Ctrl`/`Cmd`+`F` relies on the per-view hotkey scope introduced there, which is what lets it answer whenever the map's tab is active rather than only after a card has been clicked.
+
 ## [1.0.6] - 2026-08-09
 
 ### 新增 / Added

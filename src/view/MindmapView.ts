@@ -197,10 +197,9 @@ export class MindmapView extends TextFileView implements MapController {
 	 * Obsidian pushes a view's scope whenever its leaf is active, whatever inside
 	 * the view happens to hold the DOM focus -- which is the whole point: the
 	 * viewport handler in `interactions.ts` only fires once a card has been
-	 * clicked, so a map that was just opened saw no Ctrl/Cmd+F at all. That
-	 * handler stays as the fallback for builds older than `View.scope` (1.5.7,
-	 * against a `minAppVersion` of 1.5.0), where this property is simply never
-	 * read.
+	 * clicked, so a map that was just opened saw no Ctrl/Cmd+F at all. `View.scope`
+	 * is what raised `minAppVersion` to 1.5.7; the viewport handler stays as the
+	 * path that also holds when the keymap is busy with a scope of its own.
 	 */
 	private buildScope(): Scope {
 		const scope = new Scope(this.app.scope);
