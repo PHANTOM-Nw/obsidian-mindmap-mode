@@ -47,8 +47,29 @@
 	cursor: grabbing;
 }
 
+/*
+ * A pan slides every card past a pointer that is standing still, and each one
+ * that crosses it flips :hover -- a style recalc, two 120ms transitions and a
+ * repaint, per card, per frame, for a highlight nobody asked for. Nothing in
+ * the map is a drop target while the *canvas* is what is being dragged, so it
+ * leaves hit-testing altogether until the pan ends.
+ *
+ * Panning only: a node drag hit-tests with elementFromPoint, and a map that
+ * takes no pointer events has nothing to find under the cursor.
+ */
+.mm-viewport.is-panning .mm-content {
+	pointer-events: none;
+}
+
 .mm-viewport.is-dragging-node {
 	cursor: grabbing;
+}
+
+/* A node drag cannot give up hit-testing, but it can give up the animation:
+   the cards it sweeps over would otherwise each run a transition to nowhere. */
+.mm-viewport.is-dragging-node .mm-card,
+.mm-viewport.is-dragging-node .mm-add {
+	transition: none;
 }
 
 .mm-content {
@@ -101,13 +122,20 @@
  * CJK text is a single glyph, which is what turned every card into a vertical
  * string of characters. The inline max-width set in buildNodeElement only caps;
  * it cannot grow the box.
+ *
+ * No `will-change: transform` here, however much it looks like it belongs. A
+ * card's transform is written once per paint and never animated -- the pan and
+ * the zoom both live on `.mm-content`, which is the one element that actually
+ * moves -- so the hint buys nothing and costs a composited layer per card. A
+ * map with a few hundred nodes unfolded then asks the compositor for a few
+ * hundred textures, and dragging the canvas turns from moving one layer into
+ * managing all of them.
  */
 .mm-node {
 	position: absolute;
 	top: 0;
 	left: 0;
 	width: max-content;
-	will-change: transform;
 }
 
 .mm-node[data-branch="0"] { --mm-branch: var(--mm-b0); }
