@@ -158,6 +158,13 @@ export interface NodeElement {
 	expand: HTMLElement | null;
 	add: HTMLElement | null;
 	hasMath: boolean;
+	/**
+	 * Owned by the view, not by the builder: true once the card has been taken
+	 * out of the document for sitting outside the viewport. It rides here so
+	 * culling a frame's worth of cards is a field read rather than a set lookup
+	 * per node, and so nothing can ask a hidden card for its size by accident.
+	 */
+	offscreen: boolean;
 }
 
 export function buildNodeElement(
@@ -242,5 +249,5 @@ export function buildNodeElement(
 		}
 	}
 
-	return { el, card, text, toggle, checkbox, expand, add, hasMath };
+	return { el, card, text, toggle, checkbox, expand, add, hasMath, offscreen: false };
 }

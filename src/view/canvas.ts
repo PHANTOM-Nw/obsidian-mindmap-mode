@@ -1,7 +1,18 @@
+import { viewBoxOf } from "./culling.ts";
+import type { ViewBox } from "./culling.ts";
+
 export interface CanvasOptions {
 	wheel: "zoom" | "pan";
 	/** Return true to let a pointerdown start a pan. */
 	canPan: (target: HTMLElement) => boolean;
+	/**
+	 * The camera moved. Coalesced onto one call per frame on purpose: a pan
+	 * writes a new transform on every pointer event, but whatever the view
+	 * wants to do about it -- deciding which cards are worth having in the
+	 * document, redrawing the connectors -- only has to be right once, at the
+	 * frame that gets painted.
+	 */
+	onView?: () => void;
 }
 
 const MIN_SCALE = 0.1;
@@ -30,6 +41,7 @@ export class Canvas {
 	private panning = false;
 	private last = { x: 0, y: 0 };
 	private pinchDistance = 0;
+	private viewFrame = 0;
 	private readonly cleanups: Array<() => void> = [];
 
 	constructor(parent: HTMLElement, opts: CanvasOptions) {
@@ -157,6 +169,30 @@ export class Canvas {
 
 	apply(): void {
 		this.content.style.transform = `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`;
+		if (this.viewFrame !== 0 || !this.opts.onView) return;
+		this.viewFrame = window.requestAnimationFrame(() => {
+			this.viewFrame = 0;
+			this.opts.onView?.();
+		});
+	}
+
+	/**
+	 * What the viewport is showing, in content coordinates, grown by `margin`
+	 * screen pixels on every side.
+	 *
+	 * `clientWidth`/`clientHeight` rather than a rect: the viewport sits outside
+	 * the scaled content, so its box is already in screen pixels, and this is
+	 * read on every frame of a pan.
+	 */
+	viewBox(margin = 0): ViewBox | null {
+		return viewBoxOf(
+			this.viewport.clientWidth,
+			this.viewport.clientHeight,
+			this.tx,
+			this.ty,
+			this.scale,
+			margin,
+		);
 	}
 
 	/** Scale and centre so the whole map is visible. */
@@ -215,6 +251,8 @@ export class Canvas {
 	}
 
 	destroy(): void {
+		if (this.viewFrame !== 0) window.cancelAnimationFrame(this.viewFrame);
+		this.viewFrame = 0;
 		for (const off of this.cleanups) off();
 		this.cleanups.length = 0;
 		this.pointers.clear();

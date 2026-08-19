@@ -27,8 +27,10 @@ import { hiddenAncestorKeys, refoldKeys, searchTree } from "../model/search.ts";
 import type { SearchQuery } from "../model/search.ts";
 
 import { createLayoutNode, layoutTree } from "../layout/tidyTree.ts";
-import type { LayoutNode } from "../layout/tidyTree.ts";
+import type { LayoutNode, LayoutResult } from "../layout/tidyTree.ts";
 import { Canvas } from "./canvas.ts";
+import { covers, overlaps } from "./culling.ts";
+import type { ViewBox } from "./culling.ts";
 import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
@@ -61,6 +63,31 @@ const BODY_PREVIEW_LINES = 40;
 
 /** Note content gets more room than a topic title needs. */
 const BODY_WIDTH_FACTOR = 1.6;
+
+/**
+ * How far past the edge of the viewport a card is still kept in the document,
+ * in screen pixels.
+ *
+ * The whole map lives in one composited layer, so everything in it is content
+ * the browser rasterises and hit-tests whether or not it is on screen -- and a
+ * map of a few hundred cards is tens of thousands of pixels tall. Only what is
+ * nearly in view earns its place; the margin is what stops a card appearing at
+ * the edge of the screen mid-pan, and what leaves room for the tools row that
+ * hangs outside a card's own box.
+ */
+const CULL_MARGIN = 400;
+
+/**
+ * The same, for the connector layer, and deliberately much wider.
+ *
+ * Connectors are inert -- one SVG, no pointer events, no style of their own to
+ * recalculate -- so the only thing culling them saves is the size of the paint
+ * list, and rebuilding the layer costs an invalidation of the whole thing. At
+ * this margin a pan crosses out of the drawn region every screenful or so
+ * rather than every frame, which is what keeps the layer still while the
+ * camera moves over it.
+ */
+const EDGE_MARGIN = 1600;
 
 /**
  * What a body card shows. The full text stays one click away on the card's own
@@ -120,6 +147,11 @@ export class MindmapView extends TextFileView implements MapController {
 	private parsed: ParsedDoc | null = null;
 	private layoutNodes: LayoutNode[] = [];
 	private elements = new Map<string, NodeElement>();
+	/** The laid-out size of the whole map, for redrawing the connector layer. */
+	private mapWidth = 0;
+	private mapHeight = 0;
+	/** The region the connectors were last drawn for. Null means "all of it". */
+	private edgeView: ViewBox | null = null;
 
 	private collapsedKeys = new Set<string>();
 	private foldSeedPending = false;
@@ -185,6 +217,9 @@ export class MindmapView extends TextFileView implements MapController {
 			// capture, after which Chromium retargets the click to the viewport
 			// and the button never fires.
 			canPan: (target) => !target.closest(".mm-card, .mm-tools"),
+			// Every camera move ends up here, coalesced to one call a frame:
+			// panning, zooming, fitting, and the jumps that framing does.
+			onView: () => this.cullToView(),
 		});
 		this.canvas.viewport.tabIndex = 0;
 		this.buildToolbar();
@@ -306,7 +341,14 @@ export class MindmapView extends TextFileView implements MapController {
 
 	override onResize(): void {
 		// A view painted while hidden measures every card as zero-sized.
-		if (this.paintedEmpty) this.render();
+		if (this.paintedEmpty) {
+			this.render();
+			return;
+		}
+		// Nothing moved the camera, but the window it looks through changed
+		// shape, so what is on screen changed with it. This is the one way the
+		// view box moves without going through `Canvas.apply`.
+		this.cullToView();
 	}
 
 	override onPaneMenu(menu: Menu, source: string): void {
@@ -729,6 +771,9 @@ export class MindmapView extends TextFileView implements MapController {
 		// attached, and `replaceChildren` drops the old paint in the same step.
 		this.edgeLayer = createEdgeLayer();
 		this.nodeLayer = createDiv({ cls: "mm-nodes" });
+		// The layer that had connectors on it is being thrown away, so whatever
+		// region it was drawn for is no longer drawn anywhere.
+		this.edgeView = null;
 
 		const showBody = s.showBodyNodes;
 		this.bodyNodes.clear();
@@ -820,6 +865,10 @@ export class MindmapView extends TextFileView implements MapController {
 				this.restoreFocusKey = wasFocusing;
 			}
 			this.pendingReveal = wasRevealing;
+			// Every card back first: this pass exists to re-measure them, and a
+			// culled one would hand back a zero. `measureAndPlace` culls again
+			// at the end, against wherever the camera lands.
+			this.showAllCards();
 			this.measureAndPlace(rootLayout, visible, anchor);
 		});
 	}
@@ -843,7 +892,10 @@ export class MindmapView extends TextFileView implements MapController {
 		// scaled `.mm-content`, and a rect would feed the zoom back into layout.
 		for (const layout of visible) {
 			const element = this.elements.get(layout.node.id);
-			if (!element) continue;
+			// A culled card is out of the document and measures as nothing. The
+			// size it had when it was last in view is the one that still holds,
+			// and it is already on the layout node.
+			if (!element || element.offscreen) continue;
 			layout.width = element.el.offsetWidth;
 			layout.height = element.el.offsetHeight;
 		}
@@ -867,9 +919,8 @@ export class MindmapView extends TextFileView implements MapController {
 
 		this.canvas.content.style.width = `${result.width}px`;
 		this.canvas.content.style.height = `${result.height}px`;
-		if (this.edgeLayer) {
-			renderEdges(this.edgeLayer, result.nodes, result.width, result.height, s.branchColors);
-		}
+		this.mapWidth = result.width;
+		this.mapHeight = result.height;
 		this.layoutNodes = result.nodes;
 
 		this.applySelection();
@@ -880,7 +931,17 @@ export class MindmapView extends TextFileView implements MapController {
 		// repaints it, and a jump that survives the read is spent either way.
 		const reveal = this.pendingReveal;
 		this.pendingReveal = null;
+		this.frameMap(result, anchor, reveal);
 
+		// Last, and unconditionally: the camera has finished moving, so this is
+		// the first moment the map can tell which cards are worth keeping. It
+		// draws the connectors too, which is why it runs even when nothing has
+		// changed hands -- a fresh paint has an empty layer to fill.
+		this.cullToView(true);
+	}
+
+	/** Point the camera at whatever this paint owes it. */
+	private frameMap(result: LayoutResult, anchor: Anchor | null, reveal: string | null): void {
 		if (this.needsFit) {
 			// A first look at the map reframes it deliberately; holding a node
 			// still would fight that. Where it reframes *to* is the one thing a
@@ -907,6 +968,70 @@ export class MindmapView extends TextFileView implements MapController {
 		if (reveal !== null) {
 			const target = result.nodes.find((l) => l.node.key === reveal);
 			if (target) this.canvas.reveal(target.x, target.y, target.width, target.height);
+		}
+	}
+
+	/**
+	 * Keep the document down to the cards the viewport can nearly see.
+	 *
+	 * A map is one composited layer holding every card and every connector, and
+	 * a few hundred nodes is already tens of thousands of pixels of it -- all of
+	 * it rasterised, hit-tested and restyled on the frames where any of that has
+	 * to happen, however far off screen it sits. Culling makes that work
+	 * proportional to a screenful rather than to the note.
+	 *
+	 * Cheap enough to run on every frame of a pan: the scan is arithmetic over
+	 * the layout the last paint produced, and only the handful of cards that
+	 * actually crossed the boundary touch the DOM. The connectors keep their own,
+	 * wider region and are left alone until the camera leaves it.
+	 */
+	private cullToView(force = false): void {
+		const view = this.canvas.viewBox(CULL_MARGIN);
+
+		for (const layout of this.layoutNodes) {
+			const element = this.elements.get(layout.node.id);
+			if (!element) continue;
+			// No view box means a viewport with no size -- a map in a hidden tab.
+			// Nothing is measurable there, so nothing is culled either.
+			const offscreen =
+				view !== null &&
+				layout.node.id !== this.editingId &&
+				!overlaps(layout, view);
+			if (offscreen === element.offscreen) continue;
+			element.offscreen = offscreen;
+			element.el.toggleClass("is-offscreen", offscreen);
+		}
+
+		if (!force && covers(this.edgeView, view)) return;
+		this.edgeView = this.canvas.viewBox(EDGE_MARGIN);
+		this.drawEdges(this.edgeView);
+	}
+
+	private drawEdges(view: ViewBox | null): void {
+		if (!this.edgeLayer) return;
+		renderEdges(
+			this.edgeLayer,
+			this.layoutNodes,
+			this.mapWidth,
+			this.mapHeight,
+			this.plugin.settings.branchColors,
+			view,
+		);
+	}
+
+	/**
+	 * Put every card back in the document.
+	 *
+	 * The one thing culling cannot survive is a re-measure: a card that is out
+	 * of the document has no size to report, so anything that means to measure
+	 * the whole map again has to undo the culling first and let the pass that
+	 * follows redo it.
+	 */
+	private showAllCards(): void {
+		for (const element of this.elements.values()) {
+			if (!element.offscreen) continue;
+			element.offscreen = false;
+			element.el.removeClass("is-offscreen");
 		}
 	}
 
@@ -998,6 +1123,13 @@ export class MindmapView extends TextFileView implements MapController {
 
 		this.editingId = id;
 		this.select(id);
+
+		// A card culled for being off screen is out of the document and cannot
+		// take the focus. Setting `editingId` above keeps the next cull off it.
+		if (element.offscreen) {
+			element.offscreen = false;
+			element.el.removeClass("is-offscreen");
+		}
 
 		const el = element.text;
 		el.empty();

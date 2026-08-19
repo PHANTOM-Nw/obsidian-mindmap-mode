@@ -1,6 +1,14 @@
 import type { LayoutNode } from "../layout/tidyTree.ts";
+import { edgeInView } from "./culling.ts";
+import type { ViewBox } from "./culling.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * A little more than the widest stroke, so culling never drops a curve that its
+ * own line width, round cap included, would still have put on screen.
+ */
+const STROKE_PAD = 4;
 
 function anchorFor(n: LayoutNode, outgoing: boolean, side: number): [number, number] {
 	const y = n.y + n.height / 2;
@@ -21,6 +29,11 @@ function strokeWidth(depth: number): number {
  *
  * The organic S-curve is what reads as "mind map" rather than "org chart":
  * a cubic bezier whose control points sit halfway between the two anchors.
+ *
+ * `view` is the part of the map worth drawing; pass null for all of it. Both
+ * control points share their x range with the two anchors and their y with one
+ * or the other, so the anchors' bounding box contains the whole curve and a
+ * cheap rectangle test is exact rather than approximate.
  */
 export function renderEdges(
 	svg: SVGSVGElement,
@@ -28,6 +41,7 @@ export function renderEdges(
 	width: number,
 	height: number,
 	branchColors: boolean,
+	view: ViewBox | null = null,
 ): void {
 	svg.replaceChildren();
 	svg.setAttribute("width", String(width));
@@ -44,6 +58,7 @@ export function renderEdges(
 
 		const [px, py] = anchorFor(parent, true, child.side);
 		const [cx, cy] = anchorFor(child, false, child.side);
+		if (view && !edgeInView(px, py, cx, cy, STROKE_PAD, view)) continue;
 		const dx = (cx - px) * 0.5;
 
 		const path = document.createElementNS(SVG_NS, "path");

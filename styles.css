@@ -138,6 +138,16 @@
 	width: max-content;
 }
 
+/*
+ * Off screen, and out of the document for it. `display: none` rather than
+ * `visibility: hidden`: the point is that the browser stop laying the card out,
+ * rasterising it and hit-testing it at all, and a hidden box still does all
+ * three. Cards are absolutely positioned, so nothing moves when one goes.
+ */
+.mm-node.is-offscreen {
+	display: none;
+}
+
 .mm-node[data-branch="0"] { --mm-branch: var(--mm-b0); }
 .mm-node[data-branch="1"] { --mm-branch: var(--mm-b1); }
 .mm-node[data-branch="2"] { --mm-branch: var(--mm-b2); }
