@@ -29,10 +29,14 @@ export function renderEdges(
 	height: number,
 	branchColors: boolean,
 ): void {
-	while (svg.firstChild) svg.removeChild(svg.firstChild);
+	svg.replaceChildren();
 	svg.setAttribute("width", String(width));
 	svg.setAttribute("height", String(height));
 	svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+	// Built off-tree and attached once: appending a few hundred paths straight
+	// into a live SVG invalidates the layer that many times over.
+	const frag = document.createDocumentFragment();
 
 	for (const child of nodes) {
 		const parent = child.parent;
@@ -54,13 +58,15 @@ export function renderEdges(
 		if (branchColors && child.branch >= 0) {
 			path.dataset.branch = String(child.branch % 10);
 		}
-		svg.appendChild(path);
+		frag.appendChild(path);
 	}
+
+	svg.appendChild(frag);
 }
 
-export function createEdgeLayer(parent: HTMLElement): SVGSVGElement {
+/** Detached: the caller attaches the finished layer along with the cards. */
+export function createEdgeLayer(): SVGSVGElement {
 	const svg = document.createElementNS(SVG_NS, "svg");
 	svg.addClass("mm-edges");
-	parent.appendChild(svg);
 	return svg;
 }

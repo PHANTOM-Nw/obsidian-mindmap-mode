@@ -721,10 +721,14 @@ export class MindmapView extends TextFileView implements MapController {
 		this.anchor = null;
 
 		const s = this.plugin.settings;
-		this.canvas.content.empty();
 		this.elements.clear();
-		this.edgeLayer = createEdgeLayer(this.canvas.content);
-		this.nodeLayer = this.canvas.content.createDiv({ cls: "mm-nodes" });
+		// Both layers are built off-tree and swapped in at the end of the build,
+		// below. A large map is a few hundred cards and as many connectors, and
+		// growing them inside the live document means the browser carries an
+		// invalidation for each one; a detached tree costs nothing until it is
+		// attached, and `replaceChildren` drops the old paint in the same step.
+		this.edgeLayer = createEdgeLayer();
+		this.nodeLayer = createDiv({ cls: "mm-nodes" });
 
 		const showBody = s.showBodyNodes;
 		this.bodyNodes.clear();
@@ -769,6 +773,11 @@ export class MindmapView extends TextFileView implements MapController {
 			this.elements.set(node.id, element);
 			if (element.hasMath) sawMath = true;
 		}
+
+		// Attached only now that every card exists: one mutation of the live
+		// tree per paint, and the measuring pass below is the first thing that
+		// makes the browser lay any of it out.
+		this.canvas.content.replaceChildren(this.edgeLayer, this.nodeLayer);
 
 		// The fold shape and the selection are both final by now, and neither
 		// changes again before the next paint.
