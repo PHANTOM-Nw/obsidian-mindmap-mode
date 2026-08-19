@@ -1,7 +1,7 @@
 {
   "id": "mindmap-mode",
   "name": "Mindmap Mode",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "minAppVersion": "1.5.7",
   "description": "Toggle any note into an editable, radial mind map in the same tab. Every edit writes straight back to the original note, and no new files are ever created.",
   "author": "PHANTOM-Nw",
