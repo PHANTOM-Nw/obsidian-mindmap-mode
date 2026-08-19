@@ -16,6 +16,7 @@ the entry has to read correctly in both.
 ### 修复 / Fixed
 
 - 一张图上展开的分支多了以后，拖画布和拖节点都会发卡 —— 每张卡片都被单独提升成一个合成层，几百个节点就是几百块纹理，浏览器光调度这些层就忙不过来。现在整张导图只占一层，节点再多也不再影响拖动的流畅度。<br>Dragging the canvas, or dragging a node, used to get choppy once a lot of branches were unfolded on one map: every card was being promoted to its own compositing layer, so a few hundred nodes meant a few hundred textures for the browser to juggle. The whole map is one layer now, and the node count no longer decides how smoothly it drags.
+- 大图上的拖动和平移现在只画看得见的那一屏：视口之外的卡片会先从页面里撤下来，相机转回去再放回原处，连线同样只画视口附近的一段。几百个节点排开就有两万多像素高，以前不管在不在屏幕上都得整张一起渲染 —— 现在这份开销只跟一屏内容有关，跟笔记多大无关。<br>Dragging and panning a large map now only draws the screenful you can actually see: cards outside the viewport are taken out of the page until the camera comes back to them, and connectors are drawn for the region around it rather than for the whole note. A few hundred nodes lay out more than twenty thousand pixels tall, and every bit of that used to be rendered whether or not it was on screen — that cost now follows the size of your window instead of the size of your note.
 - 平移时不再让指针扫过的每张卡片都点亮一次悬停高亮，重绘整张图也只动一次 DOM —— 大图上的折叠、展开、编辑和拖放都跟着快了一截。<br>Panning no longer lights up a hover highlight on every card that slides past the pointer, and a repaint touches the document once instead of once per card and once per connector — folding, unfolding, editing and dropping on a large map are all quicker for it.
 
 ## [1.0.8] - 2026-08-13
