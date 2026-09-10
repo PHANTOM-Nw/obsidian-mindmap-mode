@@ -318,12 +318,13 @@
 	background: var(--background-modifier-border);
 }
 
+/* The dotted underline is a bottom border rather than a decoration: the plugin
+   validator reports every `text-decoration-*` longhand as only partially
+   supported, and a border on an inline box adds no height, so a link never
+   changes the size a card measures. */
 .mm-text .mm-link {
 	color: var(--link-color);
-	text-decoration: underline;
-	/* stylelint-disable-next-line plugin/no-unsupported-browser-features --
-	   the gap in Chrome's `text-decoration` is `text-decoration-skip`. */
-	text-decoration-style: dotted;
+	border-bottom: 1px dotted currentColor;
 }
 
 /* Only in note content. A title is something you select and drag, so its links
@@ -335,9 +336,7 @@
 
 .mm-node[data-kind="body"] .mm-link[data-href]:hover {
 	color: var(--link-color-hover, var(--link-color));
-	/* stylelint-disable-next-line plugin/no-unsupported-browser-features --
-	   the gap in Chrome's `text-decoration` is `text-decoration-skip`. */
-	text-decoration-style: solid;
+	border-bottom-style: solid;
 }
 
 .mm-text .mm-embed {
@@ -372,11 +371,12 @@
 	color: var(--text-muted);
 }
 
+/* Marked the way a link is, and for the same reason: a bottom border, since the
+   plugin validator reports every `text-decoration-*` longhand as only partially
+   supported. */
 .mm-math-error {
 	color: var(--text-error);
-	/* stylelint-disable-next-line plugin/no-unsupported-browser-features --
-	   the gap in Chrome's `text-decoration` is `text-decoration-skip`. */
-	text-decoration: underline dotted;
+	border-bottom: 1px dotted currentColor;
 }
 
 /* Rendered for real, then parked off-screen. Neither `display: none` nor
