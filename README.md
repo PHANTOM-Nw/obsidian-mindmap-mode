@@ -185,13 +185,13 @@ fold state for this note*, for dropping one note's state without touching the
 setting.
 
 **Shortcuts** is the last group: every key the map answers to, one row each,
-with the keys it is on now. **Record** takes the next key you press — `Esc`
-abandons it, `Backspace` or `Delete` leaves the action unbound — and the reset
-arrow, which appears only on a row you have changed, puts the default back.
-Bind two actions to one key and both rows say so; the one listed higher is the
-one that answers. **Restore all defaults** at the foot of the group clears every
-change at once. Only your changes are stored, so a default that moves in a later
-version moves for you too.
+with the keys it is on now. **Record** takes the next key you press, whatever it
+is — `Esc` abandons the capture instead. The **×** clears the row, leaving the
+action on no key at all, and the reset arrow, which appears only on a row you
+have changed, puts the default back. Bind two actions to one key and both rows
+say so; the one listed higher is the one that answers. **Restore all defaults**
+at the foot of the group clears every change at once. Only your changes are
+stored, so a default that moves in a later version moves for you too.
 
 ## How the round trip is kept safe
 

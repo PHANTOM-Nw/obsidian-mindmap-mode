@@ -360,8 +360,8 @@ export class MindmapSettingTab extends PluginSettingTab {
 	private endCapture: (() => void) | null = null;
 
 	/**
-	 * One shortcut: what it does, what it answers to, and the two buttons that
-	 * change that.
+	 * One shortcut: what it does, what it answers to, and the buttons that
+	 * change that -- record a key, unbind, put the default back.
 	 *
 	 * Returns the cleanup Obsidian 1.13 calls when it tears the row down, which
 	 * is what keeps a repaint from reaching a row that is no longer there.
@@ -373,6 +373,7 @@ export class MindmapSettingTab extends PluginSettingTab {
 		const note = setting.infoEl.createDiv({ cls: "mm-shortcut-note" });
 		const keys = setting.controlEl.createDiv({ cls: "mm-shortcut-keys" });
 
+		let unbind: ExtraButtonComponent | null = null;
 		let reset: ExtraButtonComponent | null = null;
 		let record: ButtonComponent | null = null;
 		let recording = false;
@@ -382,7 +383,10 @@ export class MindmapSettingTab extends PluginSettingTab {
 			const combos = bindings[entry.action];
 			keys.empty();
 			if (recording) {
-				keys.createSpan({ cls: "mm-shortcut-capture", text: "Press a key…" });
+				keys.createSpan({
+					cls: "mm-shortcut-capture",
+					text: "Press any key — Esc cancels",
+				});
 			} else if (combos.length === 0) {
 				keys.createSpan({ cls: "mm-shortcut-unbound", text: "Not bound" });
 			} else {
@@ -393,6 +397,7 @@ export class MindmapSettingTab extends PluginSettingTab {
 					});
 				}
 			}
+			unbind?.extraSettingsEl.toggle(combos.length > 0);
 			reset?.extraSettingsEl.toggle(!isDefaultBinding(entry.action, combos));
 			const conflict = conflictNote(entry.action, bindings);
 			note.setText(conflict);
@@ -418,11 +423,11 @@ export class MindmapSettingTab extends PluginSettingTab {
 			ev.preventDefault();
 			ev.stopPropagation();
 			stop();
+			// Escape is the way out of a capture, so it is the one key a capture
+			// cannot record. Everything else is fair game, Delete and Backspace
+			// included -- they are what deleting a node is bound to, and the
+			// unbind button is what clears a row.
 			if (combo.key === "Escape") return;
-			if (combo.key === "Backspace" || combo.key === "Delete") {
-				void this.bind(entry.action, []);
-				return;
-			}
 			void this.bind(entry.action, [combo]);
 		};
 
@@ -439,6 +444,16 @@ export class MindmapSettingTab extends PluginSettingTab {
 			paint();
 		};
 
+		setting.addExtraButton((button) => {
+			unbind = button;
+			button
+				.setIcon("x")
+				.setTooltip("Unbind")
+				.onClick(() => {
+					this.endRecording();
+					void this.bind(entry.action, []);
+				});
+		});
 		setting.addExtraButton((button) => {
 			reset = button;
 			button
