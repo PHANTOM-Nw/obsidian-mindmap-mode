@@ -134,11 +134,26 @@ jobs:
           Built from \`$TAG\` with tests and typecheck passing.
           EOF
 
+      # A draft release does not occupy its tag, so `gh release create` never sees
+      # a collision and a re-pushed tag stacks a second draft of the same name
+      # beside the first. The draft is whatever the tag points at now, so an
+      # existing draft for this tag is replaced rather than added to. A published
+      # release is never deleted: it is what users are installing from, so a tag
+      # that stands under one is not moved, and the run fails instead.
+      # (`gh release view` on a draft needs the contents:write granted above.)
       - name: Create the draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || true)
+          if [ "$draft" = "true" ]; then
+            echo "::notice::A draft release already exists for $TAG -- replacing it"
+            gh release delete "$TAG" --yes
+          elif [ "$draft" = "false" ]; then
+            echo "::error::A published release already stands under $TAG. Publish the fix as a new version rather than moving a published tag."
+            exit 1
+          fi
           gh release create "$TAG" \
             --title "$TAG" \
             --notes-file release-notes.md \

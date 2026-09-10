@@ -256,6 +256,7 @@ export class MindmapSettingTab extends PluginSettingTab {
 	// --- Obsidian 1.13 and later ------------------------------------------------
 
 	override getSettingDefinitions(): SettingDefinitionItem[] {
+		this.shortcutRows = [];
 		const groups: SettingDefinitionItem[] = GROUPS.map((group) => ({
 			type: "group" as const,
 			heading: group.heading,
