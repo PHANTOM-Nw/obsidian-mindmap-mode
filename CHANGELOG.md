@@ -11,6 +11,17 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.0.10] - 2026-09-10
+
+### 新增 / Added
+
+- 同级之间的顺序现在可以用键盘调：选中一个节点，按 `Ctrl`/`Cmd`+`↑` / `↓`，它连同整棵子树就和上面 / 下面那个同级对调，移完还是选中它。这跟把卡片拖到那个同级的边缘是同一个操作 —— 落到列表项之间就写成列表项，落到标题之间就写成标题；已经在头一个或最后一个位置时什么都不会发生，文件也不会被写。一级分支照旧不参与排序，它们的左右分布归布局管。<br>Siblings can now be reordered from the keyboard: select a node, press `Ctrl`/`Cmd`+`↑` / `↓`, and it swaps places with the sibling above or below it — subtree and all — staying selected where it lands. It is the same operation as dragging the card onto that sibling's edge, so a node that lands among list items is written as one; at either end of a run nothing happens and nothing is written. First-level branches still do not reorder, by keyboard or by dragging — the layout decides how they split across the two sides of the root.
+- 命令面板里也有 *Move the selected node up among its siblings* 和 *Move the selected node down among its siblings* 两条命令，默认不绑快捷键 —— 想换成自己顺手的键，去 Obsidian 的快捷键设置里绑它们。<br>Both moves are commands too — *Move the selected node up among its siblings* and *Move the selected node down among its siblings* — deliberately left unbound, so bind them in Obsidian's hotkey settings if you would rather use keys of your own.
+
+### 修复 / Fixed
+
+- 缩放之后卡片上的文字会发虚，图越大越明显：整张导图被长期固定在一块合成层里，浏览器只是把先前画好的那张位图拉伸到新倍率，而不是按新倍率把文字重画一遍。现在这个提示只在相机真正移动的时候挂上，停下约 0.2 秒后就撤掉，画面随即按你停住的那个倍率重画 —— 文字重新清晰，大图上的拖动照样顺滑。<br>Text on the cards went blurry after zooming, and the bigger the map the more obvious it was: the whole map was being kept in a compositing layer permanently, so a zoom stretched the bitmap the browser had already painted instead of repainting the text at the new scale. That `will-change` hint is now only applied while the camera is actually moving and dropped about a fifth of a second after it comes to rest, which gets the map repainted at the scale you stopped on — crisp text again, and dragging a large map is as smooth as it was.
+
 ## [1.0.9] - 2026-08-19
 
 ### 修复 / Fixed
