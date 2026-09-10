@@ -872,6 +872,11 @@ kbd.mm-shortcut-key {
 	box-shadow: inset 2px 0 0 var(--interactive-accent);
 }
 
+button.is-recording {
+	color: var(--text-on-accent);
+	background-color: var(--interactive-accent);
+}
+
 .mm-shortcut-note {
 	margin-top: 4px;
 	color: var(--text-warning);

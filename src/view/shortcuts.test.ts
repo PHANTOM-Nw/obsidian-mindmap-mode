@@ -9,6 +9,7 @@ import {
 	isDefaultBinding,
 	isModifierOnly,
 	parseCombo,
+	recordKey,
 	resolveAction,
 	resolveBindings,
 	sameCombo,
@@ -74,6 +75,29 @@ test("a modifier held on its own is not a combo yet", () => {
 		assert.equal(isModifierOnly(comboFromEvent(press(key, { shift: true }))), true, key);
 	}
 	assert.equal(isModifierOnly(comboFromEvent(press("a"))), false);
+});
+
+// --- recording a shortcut ------------------------------------------------------
+
+test("a modifier held on its own is ignored while recording", () => {
+	for (const key of ["Shift", "Control", "Meta", "Alt", "Dead", "Process", "CapsLock"]) {
+		assert.equal(recordKey(press(key)), "ignore", key);
+	}
+});
+
+test("Escape cancels a recording instead of becoming its binding", () => {
+	assert.equal(recordKey(press("Escape")), "cancel");
+});
+
+test("a plain letter becomes a combo", () => {
+	assert.deepEqual(recordKey(press("a")), { combo: combo("a") });
+});
+
+test("a modified named key becomes a combo", () => {
+	assert.deepEqual(
+		recordKey(press("ArrowUp", { ctrl: true })),
+		{ combo: combo("ArrowUp", { mod: true }) },
+	);
 });
 
 // --- the stored form ----------------------------------------------------------

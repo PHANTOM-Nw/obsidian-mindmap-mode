@@ -47,6 +47,7 @@ const MODIFIER_KEYS = new Set([
 	"NumLock",
 	"ScrollLock",
 	"Dead",
+	"Process",
 	"Unidentified",
 ]);
 
@@ -89,6 +90,26 @@ export function isModifierOnly(combo: KeyCombo): boolean {
 
 export function sameCombo(a: KeyCombo, b: KeyCombo): boolean {
 	return a.key === b.key && a.mod === b.mod && a.shift === b.shift && a.alt === b.alt;
+}
+
+/** What one keydown means to a shortcut row that is recording. */
+export type RecordOutcome = "ignore" | "cancel" | { combo: KeyCombo };
+
+/**
+ * Turns a keydown into a recording decision, with no DOM in the way -- the
+ * settings tab's window-level listener calls this and then only carries out
+ * whatever it says.
+ *
+ * A modifier held alone is half of a combo, not one yet, so recording waits
+ * for the next key. Escape is the one key a capture cannot record -- it
+ * cancels the capture instead. Everything else, Delete and Backspace
+ * included, becomes the new binding.
+ */
+export function recordKey(ev: KeyEventLike): RecordOutcome {
+	const combo = comboFromEvent(ev);
+	if (isModifierOnly(combo)) return "ignore";
+	if (combo.key === "Escape") return "cancel";
+	return { combo };
 }
 
 /** The stored spelling: `"Mod+Shift+ArrowUp"`, `"Mod++"`, `"]"`. */

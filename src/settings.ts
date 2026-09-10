@@ -10,11 +10,10 @@ import type {
 import type { NodeSource, RootPolicy } from "./model/types.ts";
 import {
 	SHORTCUTS,
-	comboFromEvent,
 	comboToString,
 	findConflicts,
 	isDefaultBinding,
-	isModifierOnly,
+	recordKey,
 	resolveBindings,
 	serializeCombo,
 	shortcutFor,
@@ -408,18 +407,24 @@ export class MindmapSettingTab extends PluginSettingTab {
 		const stop = (): void => {
 			if (!recording) return;
 			recording = false;
-			document.removeEventListener("keydown", onKey, true);
+			window.removeEventListener("keydown", onKey, true);
+			window.removeEventListener("blur", onBlur);
+			window.removeEventListener("pointerdown", onPointerDown, true);
 			if (this.endCapture === stop) this.endCapture = null;
 			setting.settingEl.removeClass("is-recording");
+			record?.buttonEl.removeClass("is-recording");
 			record?.setButtonText("Record");
 			paint();
 		};
 
 		const onKey = (ev: KeyboardEvent): void => {
-			const combo = comboFromEvent(ev);
-			// A modifier on its own is half of a combination, not one.
-			if (isModifierOnly(combo)) return;
-			// Captured on the document so the key reaches nothing else: Escape
+			const outcome = recordKey(ev);
+			// A modifier on its own is half of a combination, not one -- let it
+			// pass so the combo it belongs to can still reach whatever else
+			// wants it.
+			if (outcome === "ignore") return;
+			// Captured on the window, ahead of Obsidian's own keymap and the
+			// modal's Escape handling, so neither ever sees the key: Escape
 			// would otherwise close the settings window on its way past.
 			ev.preventDefault();
 			ev.stopPropagation();
@@ -428,8 +433,16 @@ export class MindmapSettingTab extends PluginSettingTab {
 			// cannot record. Everything else is fair game, Delete and Backspace
 			// included -- they are what deleting a node is bound to, and the
 			// unbind button is what clears a row.
-			if (combo.key === "Escape") return;
-			void this.bind(entry.action, [combo]);
+			if (outcome === "cancel") return;
+			void this.bind(entry.action, [outcome.combo]);
+		};
+
+		/** Losing the window ends a capture the same as Escape would. */
+		const onBlur = (): void => stop();
+
+		/** A click anywhere outside this row ends the capture without binding. */
+		const onPointerDown = (ev: PointerEvent): void => {
+			if (!setting.settingEl.contains(ev.target as Node)) stop();
 		};
 
 		const start = (): void => {
@@ -437,11 +450,14 @@ export class MindmapSettingTab extends PluginSettingTab {
 			recording = true;
 			this.endCapture = stop;
 			setting.settingEl.addClass("is-recording");
+			record?.buttonEl.addClass("is-recording");
 			record?.setButtonText("Cancel");
 			// The button keeps the focus otherwise, and Enter or Space would be
 			// read as another click on it before this listener saw them.
 			record?.buttonEl.blur();
-			document.addEventListener("keydown", onKey, true);
+			window.addEventListener("keydown", onKey, true);
+			window.addEventListener("blur", onBlur);
+			window.addEventListener("pointerdown", onPointerDown, true);
 			paint();
 		};
 
