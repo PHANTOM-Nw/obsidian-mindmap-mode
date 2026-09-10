@@ -11,6 +11,8 @@ import {
 	canMove,
 	canRename,
 	canReorder,
+	canReorderDown,
+	canReorderUp,
 	deleteNode,
 	indentNode,
 	moveAfter,
@@ -18,6 +20,8 @@ import {
 	moveNode,
 	outdentNode,
 	renameNode,
+	reorderDown,
+	reorderUp,
 	replaceBodyRange,
 	toggleCheckbox,
 } from "../model/mutate.ts";
@@ -413,6 +417,7 @@ export class MindmapView extends TextFileView implements MapController {
 			["Tab", "New child"],
 			["Shift+Tab", "Outdent"],
 			["]", "Indent under previous sibling"],
+			["Ctrl/Cmd+↑ / ↓", "Move the node among its siblings"],
 			["Delete", "Delete node and its children"],
 			["Space", "Fold / unfold"],
 			["Arrow keys", "Move the selection"],
@@ -1233,6 +1238,36 @@ export class MindmapView extends TextFileView implements MapController {
 
 	outdent(id: string): void {
 		this.withNode(id, (parsed, node) => this.apply(outdentNode(parsed, node)));
+	}
+
+	/**
+	 * Swap the node with the sibling above / below it -- the same drop dragging
+	 * it onto that sibling's near edge performs.
+	 *
+	 * Nothing else is needed to keep the selection and the folds: the mutation
+	 * focuses the line the block landed on, and fold state is keyed by text
+	 * path, which a swap between siblings written the same way never disturbs.
+	 */
+	moveUp(id: string): void {
+		this.withNode(id, (parsed, node) => this.apply(reorderUp(parsed, node)));
+	}
+
+	moveDown(id: string): void {
+		this.withNode(id, (parsed, node) => this.apply(reorderDown(parsed, node)));
+	}
+
+	/** Whether the commands have a selection with somewhere to move it. */
+	canMoveSelection(direction: "up" | "down"): boolean {
+		const node = this.selectedNode();
+		if (!node) return false;
+		return direction === "up" ? canReorderUp(node) : canReorderDown(node);
+	}
+
+	moveSelection(direction: "up" | "down"): void {
+		const id = this.selectedId();
+		if (!id) return;
+		if (direction === "up") this.moveUp(id);
+		else this.moveDown(id);
 	}
 
 	toggleCheck(id: string): void {

@@ -314,6 +314,52 @@ export function moveAfter(
 	return moveWithAnchor(parsed, node, target.parent, target.blockEnd, siblingKind(target));
 }
 
+/** The sibling `offset` places along from `node`, or null past either end. */
+function siblingAt(node: MindNode, offset: number): MindNode | null {
+	const siblings = node.parent?.children;
+	if (!siblings) return null;
+	const index = siblings.indexOf(node);
+	if (index < 0) return null;
+	return siblings[index + offset] ?? null;
+}
+
+/**
+ * Whether `node` can swap places with the sibling above / below it.
+ *
+ * False at either end of a run, and false for a first-level branch whatever its
+ * position: `canReorder` leaves that order to the layout, so there is no "up"
+ * for one of them to move to.
+ */
+export function canReorderUp(node: MindNode): boolean {
+	const previous = siblingAt(node, -1);
+	return previous !== null && canReorder(node, previous);
+}
+
+export function canReorderDown(node: MindNode): boolean {
+	const next = siblingAt(node, 1);
+	return next !== null && canReorder(node, next);
+}
+
+/**
+ * Swap `node` with the sibling above it.
+ *
+ * This is the drop that dragging the card onto that sibling's top edge already
+ * performs -- `siblingKind` included, so a node landing among list items is
+ * written as one -- reached with the keyboard instead of the pointer.
+ */
+export function reorderUp(parsed: ParsedDoc, node: MindNode): Mutation {
+	const previous = siblingAt(node, -1);
+	if (!previous) return unchanged(parsed);
+	return moveBefore(parsed, node, previous);
+}
+
+/** Swap `node` with the sibling below it, clearing that sibling's whole subtree. */
+export function reorderDown(parsed: ParsedDoc, node: MindNode): Mutation {
+	const next = siblingAt(node, 1);
+	if (!next) return unchanged(parsed);
+	return moveAfter(parsed, node, next);
+}
+
 export function indentNode(parsed: ParsedDoc, node: MindNode): Mutation {
 	const siblings = node.parent?.children ?? [];
 	const index = siblings.indexOf(node);
