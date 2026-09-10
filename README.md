@@ -59,6 +59,7 @@ reading.
 | `Tab` | New child |
 | `Shift`+`Tab` | Outdent |
 | `]` | Indent under the previous sibling |
+| `Ctrl`/`Cmd`+`↑` / `↓` | Move the node up / down among its siblings |
 | `Delete` | Delete the node and its children |
 | `Space` | Fold / unfold |
 | Arrow keys | Move the selection |
@@ -99,11 +100,18 @@ the round trip. Dropping *beside* a node works the same way: the block is
 written the way that node is written, because a bullet placed after a heading is
 that heading's content rather than its sibling.
 
-Top-level branches are not reordered by dragging. The layout splits them between
-the two sides of the root by weight, so their order is its to decide — a drop
-anywhere on a top-level card reparents, as it always has. From the second level
-down, siblings run top to bottom in file order, and the edge of a card is where
-you change it.
+`Ctrl`/`Cmd`+`↑` and `Ctrl`/`Cmd`+`↓` do the same thing without the pointer:
+they swap the selected node — subtree and all — with the sibling above or below
+it, and the node stays selected where it lands. At either end of a run nothing
+happens and nothing is written. There are **Move the selected node up / down
+among its siblings** commands too, unbound, if you would rather use your own
+keys.
+
+Top-level branches are not reordered by dragging or by the keyboard. The layout
+splits them between the two sides of the root by weight, so their order is its to
+decide — a drop anywhere on a top-level card reparents, as it always has. From
+the second level down, siblings run top to bottom in file order, and the edge of
+a card is where you change it.
 
 ### Paragraphs, code blocks and tables
 

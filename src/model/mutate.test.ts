@@ -10,6 +10,8 @@ import {
 	addSiblingBefore,
 	canMove,
 	canReorder,
+	canReorderDown,
+	canReorderUp,
 	deleteNode,
 	indentNode,
 	moveAfter,
@@ -17,6 +19,8 @@ import {
 	moveNode,
 	outdentNode,
 	renameNode,
+	reorderDown,
+	reorderUp,
 	replaceBodyRange,
 	toggleCheckbox,
 } from "./mutate.ts";
@@ -345,6 +349,111 @@ test("reordering is allowed from the second level down", () => {
 	assert.equal(canReorder(find(p, "task"), find(p, "task")), false);
 });
 
+// --- reordering with the keyboard --------------------------------------------
+
+const SECTIONS = [
+	"# R",
+	"",
+	"## H",
+	"",
+	"### A",
+	"",
+	`${F}js`,
+	CODE_LINE,
+	F,
+	"",
+	"### B",
+	"",
+	"text B",
+	"",
+].join("\n");
+
+test("moving up swaps a node with the sibling above it", () => {
+	const p = parse(ORDERED);
+	const out = reorderUp(p, find(p, "c"));
+	assert.equal(out.text, "# R\n\n## H\n\n- a\n  - a1\n- c\n- b\n");
+});
+
+test("moving down clears the next sibling's whole subtree", () => {
+	const p = parse(ORDERED);
+	// Landing between a and a1 would adopt a1, so "down" is past the end of it.
+	const out = reorderDown(p, find(p, "a"));
+	assert.equal(out.text, "# R\n\n## H\n\n- b\n- a\n  - a1\n- c\n");
+});
+
+test("the ends of a run write nothing at all", () => {
+	const p = parse(ORDERED);
+	const first = find(p, "a");
+	const last = find(p, "c");
+
+	assert.equal(canReorderUp(first), false);
+	assert.equal(canReorderDown(last), false);
+	assert.equal(reorderUp(p, first).ok, false);
+	assert.equal(reorderDown(p, last).ok, false);
+	// Rejected means the text is the file exactly as it stands.
+	assert.equal(reorderUp(p, first).text, ORDERED);
+	assert.equal(reorderDown(p, last).text, ORDERED);
+});
+
+test("moving a section carries its fenced code and its blank lines", () => {
+	const p = parse(SECTIONS);
+	const out = reorderDown(p, find(p, "A"));
+	assert.equal(
+		out.text,
+		`# R\n\n## H\n\n### B\n\ntext B\n\n### A\n\n${F}js\n${CODE_LINE}\n${F}\n`,
+	);
+});
+
+test("a move and its opposite leave a CRLF file byte for byte as it was", () => {
+	for (const source of [ORDERED, SECTIONS]) {
+		const crlf = source.replace(/\n/g, "\r\n");
+		const p = parse(crlf);
+		const label = source === ORDERED ? "list" : "headings";
+
+		const moved = reorderDown(p, find(p, source === ORDERED ? "a" : "A"));
+		assert.ok(moved.ok, `${label}: nothing moved`);
+		// Inserted lines take the file's own terminator, not the platform's.
+		assert.ok(!/[^\r]\n/.test(moved.text), `${label}: a bare LF crept in`);
+
+		const p2 = parse(moved.text);
+		const back = reorderUp(p2, find(p2, source === ORDERED ? "a" : "A"));
+		assert.equal(back.text, crlf, `${label}: the round trip changed the file`);
+	}
+});
+
+test("first-level branches cannot be moved up or down", () => {
+	const p = parse();
+	// The layout owns their order, so dragging cannot reorder them either.
+	assert.equal(canReorderUp(find(p, "Beta")), false);
+	assert.equal(canReorderDown(find(p, "Alpha")), false);
+	assert.equal(reorderUp(p, find(p, "Beta")).ok, false);
+	assert.equal(reorderDown(p, find(p, "Alpha")).ok, false);
+	assert.equal(canReorderUp(p.root), false);
+	assert.equal(canReorderDown(p.root), false);
+});
+
+test("a node moved beside list items is written as one", () => {
+	// The same rule the drag path follows: beside X means written the way X is.
+	const p = parse("# R\n\n## H\n\n- a\n- b\n\n### C\n\ntext C\n");
+	const out = reorderUp(p, find(p, "C"));
+	assert.equal(out.text, "# R\n\n## H\n\n- a\n- C\n\n  text C\n- b\n");
+	assert.equal(serialize(parse(out.text)), out.text);
+});
+
+test("focusLine lands on the node that moved, not on its neighbour", () => {
+	for (const [name, op] of [
+		["up", reorderUp],
+		["down", reorderDown],
+	] as Array<[string, typeof reorderUp]>) {
+		const p = parse(ORDERED);
+		const out = op(p, find(p, name === "up" ? "c" : "a"));
+		assert.ok(out.ok);
+		const reparsed = parseMarkdown(out.text, { title: "Fixture" });
+		const focused = everyNode(reparsed).find((n) => n.lineStart === out.focusLine);
+		assert.equal(focused?.text, name === "up" ? "c" : "a", `move ${name}`);
+	}
+});
+
 test("indent nests under the previous sibling; the first child is refused", () => {
 	const p = parse("# R\n\n- a\n- b\n");
 	assert.equal(indentNode(p, find(p, "a")).ok, false);
@@ -390,6 +499,8 @@ const OPS: Op[] = [
 	["toggleCheckbox", (p, n) => toggleCheckbox(p, n)],
 	["indent", (p, n) => indentNode(p, n)],
 	["outdent", (p, n) => outdentNode(p, n)],
+	["reorderUp", (p, n) => reorderUp(p, n)],
+	["reorderDown", (p, n) => reorderDown(p, n)],
 ];
 
 function everyNode(p: ParsedDoc): MindNode[] {

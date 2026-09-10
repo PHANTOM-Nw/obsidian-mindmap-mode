@@ -101,6 +101,23 @@ export default class MindmapPlugin extends Plugin {
 			},
 		});
 
+		// No default hotkeys: the map answers Ctrl/Cmd+Up and Ctrl/Cmd+Down itself
+		// while it holds the keyboard, and a command bound to the same pair would
+		// run on the same keypress -- moving the node two places instead of one.
+		// These are here to be rebound, and for the palette.
+		for (const direction of ["up", "down"] as const) {
+			this.addCommand({
+				id: `move-node-${direction}`,
+				name: `Move the selected node ${direction} among its siblings`,
+				checkCallback: (checking) => {
+					const view = this.app.workspace.getActiveViewOfType(MindmapView);
+					if (!view?.canMoveSelection(direction)) return false;
+					if (!checking) view.moveSelection(direction);
+					return true;
+				},
+			});
+		}
+
 		this.addCommand({
 			id: "open-as-mindmap",
 			name: "Open current note as a mind map",

@@ -21,6 +21,9 @@ export interface MapController {
 	removeNode(id: string): void;
 	indent(id: string): void;
 	outdent(id: string): void;
+	/** Swap the node with the sibling above / below it. */
+	moveUp(id: string): void;
+	moveDown(id: string): void;
 	toggleFold(id: string): void;
 	toggleCheck(id: string): void;
 	/** Open a note-content block whole, rendered, in its own dialog. */
@@ -341,6 +344,21 @@ export function attachInteractions(controller: MapController): () => void {
 			if (!id) return;
 			ev.preventDefault();
 			controller.toggleCheck(id);
+			return;
+		}
+		// Ahead of the plain arrow keys below, which move the selection rather
+		// than the node. Deliberately handled here and not in the view's keymap
+		// scope: a move is not idempotent the way `openSearch` is, and a key both
+		// paths saw would move the node two places instead of one. The same
+		// reasoning is why this one stops the event rather than only preventing
+		// the default -- Obsidian's keymap sits on the document, so a hotkey a
+		// user has bound to Ctrl/Cmd+Up would otherwise fire on top of this.
+		if (mod && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
+			if (!id) return;
+			ev.preventDefault();
+			ev.stopPropagation();
+			if (ev.key === "ArrowUp") controller.moveUp(id);
+			else controller.moveDown(id);
 			return;
 		}
 
