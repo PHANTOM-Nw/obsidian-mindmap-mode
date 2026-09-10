@@ -321,6 +321,8 @@
 .mm-text .mm-link {
 	color: var(--link-color);
 	text-decoration: underline;
+	/* stylelint-disable-next-line plugin/no-unsupported-browser-features --
+	   the gap in Chrome's `text-decoration` is `text-decoration-skip`. */
 	text-decoration-style: dotted;
 }
 
@@ -333,6 +335,8 @@
 
 .mm-node[data-kind="body"] .mm-link[data-href]:hover {
 	color: var(--link-color-hover, var(--link-color));
+	/* stylelint-disable-next-line plugin/no-unsupported-browser-features --
+	   the gap in Chrome's `text-decoration` is `text-decoration-skip`. */
 	text-decoration-style: solid;
 }
 
@@ -352,7 +356,9 @@
    its `mjx-container[jax="CHTML"][display="true"]` rule scores (0,2,1) -- the
    same as a plain `.mm-text .mm-math mjx-container`. The `.mindmap-mode` prefix
    takes it to (0,3,1) and wins without reaching for !important. */
+/* stylelint-disable-next-line selector-type-no-unknown -- MathJax's own element */
 .mindmap-mode .mm-text .mm-math mjx-container,
+/* stylelint-disable-next-line selector-type-no-unknown -- MathJax's own element */
 .mindmap-mode .mm-text .mm-math mjx-container[display="true"] {
 	display: inline-block;
 	margin: 0;
@@ -369,6 +375,8 @@
 
 .mm-math-error {
 	color: var(--text-error);
+	/* stylelint-disable-next-line plugin/no-unsupported-browser-features --
+	   the gap in Chrome's `text-decoration` is `text-decoration-skip`. */
 	text-decoration: underline dotted;
 }
 

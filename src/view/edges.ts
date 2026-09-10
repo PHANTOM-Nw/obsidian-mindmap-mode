@@ -2,8 +2,6 @@ import type { LayoutNode } from "../layout/tidyTree.ts";
 import { edgeInView } from "./culling.ts";
 import type { ViewBox } from "./culling.ts";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-
 /**
  * A little more than the widest stroke, so culling never drops a curve that its
  * own line width, round cap included, would still have put on screen.
@@ -50,7 +48,7 @@ export function renderEdges(
 
 	// Built off-tree and attached once: appending a few hundred paths straight
 	// into a live SVG invalidates the layer that many times over.
-	const frag = document.createDocumentFragment();
+	const frag = createFragment();
 
 	for (const child of nodes) {
 		const parent = child.parent;
@@ -61,7 +59,7 @@ export function renderEdges(
 		if (view && !edgeInView(px, py, cx, cy, STROKE_PAD, view)) continue;
 		const dx = (cx - px) * 0.5;
 
-		const path = document.createElementNS(SVG_NS, "path");
+		const path = createSvg("path");
 		path.setAttribute(
 			"d",
 			`M ${px} ${py} C ${px + dx} ${py}, ${cx - dx} ${cy}, ${cx} ${cy}`,
@@ -81,7 +79,7 @@ export function renderEdges(
 
 /** Detached: the caller attaches the finished layer along with the cards. */
 export function createEdgeLayer(): SVGSVGElement {
-	const svg = document.createElementNS(SVG_NS, "svg");
+	const svg = createSvg("svg");
 	svg.addClass("mm-edges");
 	return svg;
 }
