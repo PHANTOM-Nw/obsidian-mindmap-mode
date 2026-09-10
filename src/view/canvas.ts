@@ -1,5 +1,6 @@
 import { viewBoxOf } from "./culling.ts";
 import type { ViewBox } from "./culling.ts";
+import { MotionFlag, SETTLE_MS } from "./motion.ts";
 
 export interface CanvasOptions {
 	wheel: "zoom" | "pan";
@@ -43,6 +44,20 @@ export class Canvas {
 	private pinchDistance = 0;
 	private viewFrame = 0;
 	private readonly cleanups: Array<() => void> = [];
+	/**
+	 * `will-change: transform` on `.mm-content`, raised while the camera moves
+	 * and dropped once it rests. The comment on the rule in `styles.css` has the
+	 * why; the short version is that a permanently promoted layer is rasterised
+	 * once and then only stretched, so text blurs after a zoom (issue #4).
+	 *
+	 * The callback reads `this.content` lazily on purpose: field initialisers run
+	 * before the constructor body, which is where the element is made.
+	 */
+	private readonly moving = new MotionFlag(
+		(moving) => this.content.toggleClass("mm-moving", moving),
+		SETTLE_MS,
+		window,
+	);
 
 	constructor(parent: HTMLElement, opts: CanvasOptions) {
 		this.opts = opts;
@@ -97,6 +112,10 @@ export class Canvas {
 			if (!middleClick && !this.opts.canPan(target)) return;
 
 			this.panning = true;
+			// Promote the layer before the drag rather than on its first frame.
+			// Nothing depends on this: the debounce in `apply` is what guarantees
+			// the class comes off again, whether or not a gesture ever moves.
+			this.moving.touch();
 			this.last = { x: ev.clientX, y: ev.clientY };
 			this.viewport.addClass("is-panning");
 			this.viewport.setPointerCapture(ev.pointerId);
@@ -169,6 +188,10 @@ export class Canvas {
 
 	apply(): void {
 		this.content.style.transform = `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`;
+		// Every pan frame, wheel notch and framing jump comes through here, which
+		// makes this the one place that knows the camera is moving -- and, once
+		// the calls stop arriving, the only one that can tell it has stopped.
+		this.moving.touch();
 		if (this.viewFrame !== 0 || !this.opts.onView) return;
 		this.viewFrame = window.requestAnimationFrame(() => {
 			this.viewFrame = 0;
@@ -253,6 +276,8 @@ export class Canvas {
 	destroy(): void {
 		if (this.viewFrame !== 0) window.cancelAnimationFrame(this.viewFrame);
 		this.viewFrame = 0;
+		// Nothing may be left to fire at an element on its way out of the document.
+		this.moving.stop();
 		for (const off of this.cleanups) off();
 		this.cleanups.length = 0;
 		this.pointers.clear();

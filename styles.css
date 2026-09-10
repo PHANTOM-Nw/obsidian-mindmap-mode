@@ -77,6 +77,29 @@
 	top: 0;
 	left: 0;
 	transform-origin: 0 0;
+}
+
+/*
+ * The one compositor-promotion hint in this file, and it is only on while the
+ * camera is actually moving.
+ *
+ * Both halves are load-bearing, and each was once a bug. Without the hint, a
+ * drag on a large map has the browser re-rasterising the whole content on every
+ * frame, which is what made dragging crawl. With it left on permanently, the
+ * layer is rasterised once and then merely stretched to the new transform -- so
+ * after a zoom the text on every card is a scaled bitmap of the text at the old
+ * scale, which is the blur reported in issue #4. Dropping the hint once the
+ * camera rests hands the layer back and gets it painted at the scale it ended
+ * up at.
+ *
+ * `Canvas.apply` in `src/view/canvas.ts` toggles the class: every pan frame,
+ * wheel notch and framing jump goes through it, and `MotionFlag` in
+ * `src/view/motion.ts` takes it off again once those calls stop arriving.
+ *
+ * Never on `.mm-node` -- see the note on that rule. One layer for the map is the
+ * whole point; a layer per card is the thing this replaced.
+ */
+.mm-content.mm-moving {
 	will-change: transform;
 }
 
@@ -123,10 +146,12 @@
  * string of characters. The inline max-width set in buildNodeElement only caps;
  * it cannot grow the box.
  *
- * No `will-change: transform` here, however much it looks like it belongs. A
- * card's transform is written once per paint and never animated -- the pan and
- * the zoom both live on `.mm-content`, which is the one element that actually
- * moves -- so the hint buys nothing and costs a composited layer per card. A
+ * No compositor-promotion hint here, however much it looks like it belongs;
+ * `.mm-content.mm-moving` is the only rule that asks for a layer, and it asks
+ * for exactly one. A card's transform is written once per paint and never
+ * animated -- the pan and the zoom both live on `.mm-content`, which is the one
+ * element that actually moves -- so the hint buys nothing here and costs a
+ * composited layer per card. A
  * map with a few hundred nodes unfolded then asks the compositor for a few
  * hundred textures, and dragging the canvas turns from moving one layer into
  * managing all of them.
