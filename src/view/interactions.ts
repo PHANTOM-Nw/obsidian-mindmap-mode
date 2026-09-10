@@ -1,4 +1,6 @@
 import type { Canvas } from "./canvas.ts";
+import { comboFromEvent, resolveAction } from "./shortcuts.ts";
+import type { ShortcutBindings } from "./shortcuts.ts";
 
 export type Direction = "up" | "down" | "left" | "right";
 
@@ -45,9 +47,26 @@ export interface MapController {
 	redo(): void;
 	fit(): void;
 	centreOnSelection(): void;
+
+	/** The keys the map answers to: the defaults with the user's changes on top. */
+	bindings(): ShortcutBindings;
 }
 
 const DRAG_THRESHOLD = 5;
+
+/** The four navigation actions, as the direction each one steps in. */
+const DIRECTIONS: Record<
+	"navigate-up" | "navigate-down" | "navigate-left" | "navigate-right",
+	Direction
+> = {
+	"navigate-up": "up",
+	"navigate-down": "down",
+	"navigate-left": "left",
+	"navigate-right": "right",
+};
+
+/** Reached only by an action no `case` claimed, which is a compile error. */
+function assertHandled(_action: never): void {}
 
 function nodeIdFrom(target: EventTarget | null): string | null {
 	if (!(target instanceof HTMLElement)) return null;
@@ -296,121 +315,49 @@ export function attachInteractions(controller: MapController): () => void {
 	on(viewport, "keydown", (ev) => {
 		if (controller.isEditing()) return;
 
-		const mod = ev.ctrlKey || ev.metaKey;
+		// Every key the map answers goes through the one table, so what the
+		// settings tab shows and what happens here cannot drift. A press with a
+		// modifier the binding does not name is not that binding: Alt+Enter is
+		// not Enter.
+		const action = resolveAction(controller.bindings(), comboFromEvent(ev));
+		if (!action) return;
 		const id = controller.selectedId();
 
-		if (mod && ev.key.toLowerCase() === "z") {
-			ev.preventDefault();
-			if (ev.shiftKey) controller.redo();
-			else controller.undo();
-			return;
-		}
-		if (mod && (ev.key === "y" || ev.key === "Y")) {
-			ev.preventDefault();
-			controller.redo();
-			return;
-		}
-		if (mod && ev.key === "0") {
-			ev.preventDefault();
-			controller.fit();
-			return;
-		}
-		if (mod && (ev.key === "=" || ev.key === "+")) {
-			ev.preventDefault();
-			canvas.zoomBy(1.2);
-			return;
-		}
-		if (mod && ev.key === "-") {
-			ev.preventDefault();
-			canvas.zoomBy(1 / 1.2);
-			return;
-		}
-		if (mod && ev.key === ".") {
-			ev.preventDefault();
-			controller.centreOnSelection();
-			return;
-		}
-		// The map's own Ctrl/Cmd+F. The view's keymap scope is what normally
-		// claims it -- this handler needs the viewport to hold the DOM focus,
-		// which it only does once a card has been clicked -- so this is the
-		// belt to that pair of braces. `openSearch` is idempotent, so the two
-		// paths overlapping costs nothing.
-		if (mod && ev.key.toLowerCase() === "f") {
-			ev.preventDefault();
-			controller.openSearch();
-			return;
-		}
-		if (mod && ev.key === "Enter") {
-			if (!id) return;
-			ev.preventDefault();
-			controller.toggleCheck(id);
-			return;
-		}
-		// Ahead of the plain arrow keys below, which move the selection rather
-		// than the node. Deliberately handled here and not in the view's keymap
-		// scope: a move is not idempotent the way `openSearch` is, and a key both
-		// paths saw would move the node two places instead of one. The same
-		// reasoning is why this one stops the event rather than only preventing
-		// the default -- Obsidian's keymap sits on the document, so a hotkey a
-		// user has bound to Ctrl/Cmd+Up would otherwise fire on top of this.
-		if (mod && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
-			if (!id) return;
-			ev.preventDefault();
-			ev.stopPropagation();
-			if (ev.key === "ArrowUp") controller.moveUp(id);
-			else controller.moveDown(id);
-			return;
-		}
-
-		switch (ev.key) {
-			case "ArrowUp":
-			case "ArrowDown":
-			case "ArrowLeft":
-			case "ArrowRight": {
+		switch (action) {
+			case "undo":
 				ev.preventDefault();
-				const map: Record<string, Direction> = {
-					ArrowUp: "up",
-					ArrowDown: "down",
-					ArrowLeft: "left",
-					ArrowRight: "right",
-				};
-				controller.navigate(map[ev.key]);
+				controller.undo();
 				return;
-			}
-			case "Tab":
-				if (!id) return;
+			case "redo":
 				ev.preventDefault();
-				if (ev.shiftKey) controller.outdent(id);
-				else controller.addChildTo(id);
+				controller.redo();
 				return;
-			case "Enter":
-				if (!id) return;
+			case "fit":
 				ev.preventDefault();
-				if (ev.shiftKey) controller.beginEdit(id);
-				else controller.addSiblingTo(id);
+				controller.fit();
 				return;
-			case "F2":
-				if (!id) return;
+			case "zoom-in":
 				ev.preventDefault();
-				controller.beginEdit(id);
+				canvas.zoomBy(1.2);
 				return;
-			case "Delete":
-			case "Backspace":
-				if (!id) return;
+			case "zoom-out":
 				ev.preventDefault();
-				controller.removeNode(id);
+				canvas.zoomBy(1 / 1.2);
 				return;
-			case " ":
-				if (!id) return;
+			case "centre-selection":
 				ev.preventDefault();
-				controller.toggleFold(id);
+				controller.centreOnSelection();
 				return;
-			case "]":
-				if (!id) return;
+			// The map's own Ctrl/Cmd+F. The view's keymap scope is what normally
+			// claims it -- this handler needs the viewport to hold the DOM focus,
+			// which it only does once a card has been clicked -- so this is the
+			// belt to that pair of braces. `openSearch` is idempotent, so the two
+			// paths overlapping costs nothing.
+			case "search":
 				ev.preventDefault();
-				controller.indent(id);
+				controller.openSearch();
 				return;
-			case "Escape":
+			case "close-search":
 				// Only ours while a search is open; otherwise Escape keeps
 				// whatever meaning Obsidian gives it. The view's scope registers
 				// the same key on the same terms; whichever sees it first, the
@@ -418,7 +365,83 @@ export function attachInteractions(controller: MapController): () => void {
 				if (!controller.closeSearch()) return;
 				ev.preventDefault();
 				return;
+			case "navigate-up":
+			case "navigate-down":
+			case "navigate-left":
+			case "navigate-right":
+				// No selection is not a reason to stand still: `navigate` takes
+				// the root when there is nothing selected yet.
+				ev.preventDefault();
+				controller.navigate(DIRECTIONS[action]);
+				return;
+			// Deliberately handled here and not in the view's keymap scope: a
+			// move is not idempotent the way `openSearch` is, and a key both
+			// paths saw would move the node two places instead of one. The same
+			// reasoning is why this one stops the event rather than only
+			// preventing the default -- Obsidian's keymap sits on the document,
+			// so a hotkey a user has bound to the same combination would
+			// otherwise fire on top of this.
+			case "move-up":
+				if (!id) return;
+				ev.preventDefault();
+				ev.stopPropagation();
+				controller.moveUp(id);
+				return;
+			case "move-down":
+				if (!id) return;
+				ev.preventDefault();
+				ev.stopPropagation();
+				controller.moveDown(id);
+				return;
+			case "add-child":
+				if (!id) return;
+				ev.preventDefault();
+				controller.addChildTo(id);
+				return;
+			case "add-sibling":
+				if (!id) return;
+				ev.preventDefault();
+				controller.addSiblingTo(id);
+				return;
+			case "edit-title":
+				if (!id) return;
+				ev.preventDefault();
+				controller.beginEdit(id);
+				return;
+			case "delete-node":
+				if (!id) return;
+				ev.preventDefault();
+				controller.removeNode(id);
+				return;
+			case "toggle-check":
+				if (!id) return;
+				ev.preventDefault();
+				controller.toggleCheck(id);
+				return;
+			case "toggle-fold":
+				if (!id) return;
+				ev.preventDefault();
+				controller.toggleFold(id);
+				return;
+			case "indent":
+				if (!id) return;
+				ev.preventDefault();
+				controller.indent(id);
+				return;
+			case "outdent":
+				if (!id) return;
+				ev.preventDefault();
+				controller.outdent(id);
+				return;
+			case "expand-body":
+				if (!id) return;
+				ev.preventDefault();
+				controller.expandBody(id);
+				return;
 			default:
+				// An action with no case here is a compile error, which is the
+				// point: the table cannot grow a row nothing performs.
+				assertHandled(action);
 				return;
 		}
 	});

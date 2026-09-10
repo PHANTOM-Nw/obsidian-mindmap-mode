@@ -1,5 +1,12 @@
-import { Keymap, Menu, Notice, Scope, TextFileView, setIcon } from "obsidian";
-import type { TFile, WorkspaceLeaf } from "obsidian";
+import { Keymap, Menu, Notice, Platform, Scope, TextFileView, setIcon } from "obsidian";
+import type {
+	KeymapContext,
+	KeymapEventHandler,
+	KeymapEventListener,
+	Modifier,
+	TFile,
+	WorkspaceLeaf,
+} from "obsidian";
 
 import { parseMarkdown } from "../model/parse.ts";
 import type { MindNode, ParsedDoc } from "../model/types.ts";
@@ -39,6 +46,8 @@ import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
 import { attachInteractions } from "./interactions.ts";
+import { SHORTCUTS, comboToString, resolveBindings } from "./shortcuts.ts";
+import type { KeyCombo, ShortcutBindings } from "./shortcuts.ts";
 import { SearchBar } from "./searchBar.ts";
 import { BlockDialog } from "./blockDialog.ts";
 import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
@@ -107,6 +116,16 @@ function previewOf(text: string): string {
 		clipped = true;
 	}
 	return clipped ? `${out.replace(/\s+$/, "")}…` : out;
+}
+
+/** Somewhere a keystroke means a character rather than a command. */
+function inTextField(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	return (
+		target.isContentEditable ||
+		target.tagName === "INPUT" ||
+		target.tagName === "TEXTAREA"
+	);
 }
 
 /**
@@ -200,6 +219,17 @@ export class MindmapView extends TextFileView implements MapController {
 	/** A match to bring into view once the next paint has measured it. */
 	private pendingReveal: string | null = null;
 
+	/**
+	 * The resolved key table, rebuilt on demand.
+	 *
+	 * Dropped by `refresh`, which is what the plugin calls after a setting is
+	 * written -- so a shortcut rebound in the settings tab is live in every open
+	 * map before the tab is even closed.
+	 */
+	private shortcutBindings: ShortcutBindings | null = null;
+	/** What `bindScope` registered, so a rebinding can take them off again. */
+	private scopeHandlers: KeymapEventHandler[] = [];
+
 	private detachInteractions: (() => void) | null = null;
 	private popover: HTMLElement | null = null;
 	private dialog: BlockDialog | null = null;
@@ -236,29 +266,68 @@ export class MindmapView extends TextFileView implements MapController {
 	 * Obsidian pushes a view's scope whenever its leaf is active, whatever inside
 	 * the view happens to hold the DOM focus -- which is the whole point: the
 	 * viewport handler in `interactions.ts` only fires once a card has been
-	 * clicked, so a map that was just opened saw no Ctrl/Cmd+F at all. `View.scope`
+	 * clicked, so a map that was just opened saw no find key at all. `View.scope`
 	 * is what raised `minAppVersion` to 1.5.7; the viewport handler stays as the
 	 * path that also holds when the keymap is busy with a scope of its own.
 	 */
 	private buildScope(): Scope {
 		const scope = new Scope(this.app.scope);
-		// Obsidian matches a registered key against an interpreted "virtual key",
-		// and which case it normalises a letter to is not part of the public API:
-		// `hotkeys.json` spells them uppercase, a KeyboardEvent reports "f". Both
-		// spellings are registered rather than betting on one -- `openSearch` is
-		// idempotent, so a keymap that ran both would merely focus the bar twice.
-		for (const key of ["F", "f"]) {
-			scope.register(["Mod"], key, (evt) => {
+		this.bindScope(scope);
+		return scope;
+	}
+
+	/**
+	 * Puts the two scoped actions on the keys they are bound to now, replacing
+	 * whatever they were on before, so rebinding "Find in the map" moves this
+	 * path along with the viewport handler rather than leaving the old key half
+	 * working.
+	 */
+	private bindScope(scope: Scope): void {
+		for (const handler of this.scopeHandlers) scope.unregister(handler);
+		this.scopeHandlers = [];
+
+		const bindings = this.bindings();
+		for (const combo of bindings.search) {
+			this.registerScoped(scope, combo, (evt) => {
 				evt.preventDefault();
 				this.openSearch();
 				return false;
 			});
 		}
-		// Escape is only ours while a bar is up. Returning anything but `false`
-		// hands the key straight on, so every other meaning it has in Obsidian is
-		// left alone.
-		scope.register([], "Escape", () => !this.closeSearch());
-		return scope;
+		// Only ours while a bar is up. Returning anything but `false` hands the
+		// key straight on, so every other meaning it has in Obsidian is left
+		// alone.
+		for (const combo of bindings["close-search"]) {
+			this.registerScoped(scope, combo, () => !this.closeSearch());
+		}
+	}
+
+	private registerScoped(scope: Scope, combo: KeyCombo, run: KeymapEventListener): void {
+		const modifiers: Modifier[] = [];
+		if (combo.mod) modifiers.push("Mod");
+		if (combo.alt) modifiers.push("Alt");
+		if (combo.shift) modifiers.push("Shift");
+
+		// A press with no modifier is a character somebody may be typing, and
+		// this scope answers wherever the focus is -- including the find bar's
+		// own input. Escape and the named keys are not characters, so they are
+		// left to fire.
+		const guarded =
+			modifiers.length === 0 && combo.key.length === 1
+				? (evt: KeyboardEvent, ctx: KeymapContext): boolean | void =>
+						inTextField(evt.target) ? true : run(evt, ctx)
+				: run;
+
+		// Obsidian matches a registered key against an interpreted "virtual key",
+		// and which case it normalises a letter to is not part of the public API:
+		// `hotkeys.json` spells them uppercase, a KeyboardEvent reports "f". Both
+		// spellings are registered rather than betting on one -- both handlers do
+		// the same idempotent thing, so a keymap that ran both costs nothing.
+		const keys =
+			combo.key.length === 1 && combo.key.toLowerCase() !== combo.key.toUpperCase()
+				? [combo.key.toUpperCase(), combo.key.toLowerCase()]
+				: [combo.key === "Space" ? " " : combo.key];
+		for (const key of keys) this.scopeHandlers.push(scope.register(modifiers, key, guarded));
 	}
 
 	// --- Obsidian plumbing ---------------------------------------------------
@@ -373,8 +442,15 @@ export class MindmapView extends TextFileView implements MapController {
 
 	/** Called by the plugin when settings change. */
 	refresh(): void {
+		this.shortcutBindings = null;
+		if (this.scope) this.bindScope(this.scope);
 		this.canvas.setOptions({ wheel: this.plugin.settings.wheel });
 		this.render();
+	}
+
+	bindings(): ShortcutBindings {
+		this.shortcutBindings ??= resolveBindings(this.plugin.settings.shortcuts);
+		return this.shortcutBindings;
 	}
 
 	// --- toolbar --------------------------------------------------------------
@@ -406,38 +482,48 @@ export class MindmapView extends TextFileView implements MapController {
 		button("help-circle", "Keyboard shortcuts", () => this.showShortcuts());
 	}
 
+	/**
+	 * What the map answers to, as it stands.
+	 *
+	 * The keys are read out of the live bindings rather than a list of their
+	 * own, so a shortcut the user has rebound in the settings tab is shown here
+	 * the way they bound it -- and an unbound one is not shown at all.
+	 */
 	private showShortcuts(): void {
-		const rows: Array<[string, string]> = [
-			["Double-click / F2", "Edit the node"],
+		const mouse: Array<[string, string]> = [
+			["Double-click a card", "Edit the node"],
 			["⤢ on a content card", "Show the whole block, rendered"],
 			["Click a link in a content card", "Open it"],
 			["+ beside a card", "New child"],
 			["Right-click a card", "The node's menu"],
-			["Enter", "New sibling"],
-			["Tab", "New child"],
-			["Shift+Tab", "Outdent"],
-			["]", "Indent under previous sibling"],
-			["Ctrl/Cmd+↑ / ↓", "Move the node among its siblings"],
-			["Delete", "Delete node and its children"],
-			["Space", "Fold / unfold"],
-			["Arrow keys", "Move the selection"],
 			["Drag onto a card", "Reparent it"],
 			["Drag onto a card's top / bottom edge", "Reorder it beside that card"],
-			["Ctrl/Cmd+Enter", "Cycle the checkbox"],
-			["Ctrl/Cmd+Z", "Undo (Shift to redo)"],
-			["Ctrl/Cmd+0", "Fit to window"],
-			["Ctrl/Cmd+F", "Find in the map (Enter / Shift+Enter to step)"],
+			["Wheel / pinch", "Zoom; drag blank space to pan"],
 		];
 
 		const panel = this.openPopover();
 		panel.addClass("mm-shortcuts");
 		panel.createEl("h4", { text: "Mind map shortcuts" });
 		const table = panel.createEl("table");
-		for (const [keys, what] of rows) {
+		const row = (keys: string, what: string): void => {
 			const tr = table.createEl("tr");
 			tr.createEl("td", { cls: "mm-keys", text: keys });
 			tr.createEl("td", { text: what });
+		};
+
+		const bindings = this.bindings();
+		const isMac = Platform.isMacOS;
+		for (const entry of SHORTCUTS) {
+			const combos = bindings[entry.action];
+			if (combos.length === 0) continue;
+			row(combos.map((combo) => comboToString(combo, isMac)).join("  /  "), entry.name);
 		}
+		for (const [keys, what] of mouse) row(keys, what);
+
+		panel.createDiv({
+			cls: "mm-popover-hint mm-shortcuts-footer",
+			text: "Every key above can be changed in the plugin's settings.",
+		});
 	}
 
 	// --- rendering ------------------------------------------------------------

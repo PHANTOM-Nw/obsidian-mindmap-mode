@@ -192,7 +192,11 @@ export default class MindmapPlugin extends Plugin {
 		// which the next save would then write back inside itself, once per save.
 		const { [FOLD_STATE_KEY]: folds, ...rest } = stored ?? {};
 		this.foldStore = readStore(folds);
-		this.settings = { ...DEFAULT_SETTINGS, ...(rest as Partial<MindmapSettings>) };
+		const merged = { ...DEFAULT_SETTINGS, ...(rest as Partial<MindmapSettings>) };
+		// The spread is shallow, so a vault with no rebound shortcuts would share
+		// the one object `DEFAULT_SETTINGS` holds -- and the first rebinding would
+		// write itself into the defaults every other reader compares against.
+		this.settings = { ...merged, shortcuts: { ...merged.shortcuts } };
 	}
 
 	async saveSettings(): Promise<void> {

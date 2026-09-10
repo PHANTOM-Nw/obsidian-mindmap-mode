@@ -68,9 +68,17 @@ reading.
 | `Ctrl`/`Cmd`+`Enter` | Cycle the checkbox: none → `[ ]` → `[x]` → none |
 | `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
 | `Ctrl`/`Cmd`+`0` | Fit the map to the window |
+| `Ctrl`/`Cmd`+`=` / `-` | Zoom in / out |
+| `Ctrl`/`Cmd`+`.` | Centre on the selection |
 | `Ctrl`/`Cmd`+`F` | Find in the map: `Enter` / `Shift`+`Enter` steps, `Esc` closes |
 | Wheel / pinch | Zoom; drag blank space to pan |
 | Toolbar | Zoom, fit, centre, **expand all**, **collapse all**, **find**, shortcut help |
+
+Every key in that table is a default. **Settings → Mindmap Mode → Shortcuts**
+lists each one with what it does, records a new key for it, clears it, or puts
+the default back — and warns when two actions end up on the same key. Open maps
+follow a change straight away, and the map's own shortcut help, behind the **?**
+in the toolbar, always shows what is bound now.
 
 **Collapse all** returns the map to the view it opened with, rather than hiding
 everything behind the root.
@@ -175,6 +183,15 @@ Turning **Remember fold state** off makes every map open at the root plus its
 top-level branches, as it did before. There is also a command, *Forget the saved
 fold state for this note*, for dropping one note's state without touching the
 setting.
+
+**Shortcuts** is the last group: every key the map answers to, one row each,
+with the keys it is on now. **Record** takes the next key you press — `Esc`
+abandons it, `Backspace` or `Delete` leaves the action unbound — and the reset
+arrow, which appears only on a row you have changed, puts the default back.
+Bind two actions to one key and both rows say so; the one listed higher is the
+one that answers. **Restore all defaults** at the foot of the group clears every
+change at once. Only your changes are stored, so a default that moves in a later
+version moves for you too.
 
 ## How the round trip is kept safe
 
