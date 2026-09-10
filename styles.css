@@ -352,14 +352,13 @@
 	vertical-align: middle;
 }
 
-/* MathJax injects its own stylesheet into <head>, possibly after this file, and
-   its `mjx-container[jax="CHTML"][display="true"]` rule scores (0,2,1) -- the
-   same as a plain `.mm-text .mm-math mjx-container`. The `.mindmap-mode` prefix
-   takes it to (0,3,1) and wins without reaching for !important. */
-/* stylelint-disable-next-line selector-type-no-unknown -- MathJax's own element */
-.mindmap-mode .mm-text .mm-math mjx-container,
-/* stylelint-disable-next-line selector-type-no-unknown -- MathJax's own element */
-.mindmap-mode .mm-text .mm-math mjx-container[display="true"] {
+/* MathJax's CHTML output carries the class `MathJax`, plus `display="true"` on a
+   block formula. Its own stylesheet lands in <head>, possibly after this file,
+   and styles those containers at up to (0,3,1). Matching them by class through
+   the map's ancestor chain scores (0,4,0) and (0,5,0), so a formula stays inline
+   in its card without reaching for !important. */
+.mindmap-mode .mm-text .mm-math .MathJax,
+.mindmap-mode .mm-text .mm-math .MathJax[display="true"] {
 	display: inline-block;
 	margin: 0;
 	padding: 0;
