@@ -11,42 +11,17 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
-## [1.1.0-beta.3] - 2026-09-14
-
-实验性预发布，接 1.1.0-beta.2；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release following 1.1.0-beta.2; not a stable version until it lands on main.
-
-### 修复 / Fixed
-
-- 打开含公式的笔记不再整图重绘一遍：MathJax 就绪后直接把公式排进已经画好的卡片，只补一次测量；同时每个 TeX 源只排版一次并克隆复用，509 个节点的地图开图约从 750 ms 降到 350 ms，展开全部分支约从 700 ms 降到 310 ms。<br>Opening a note with formulas no longer paints the map a second time: once MathJax is up the formulas go into the cards already on screen and the map is measured once more, and each distinct TeX source is now typeset once and cloned — a 509-node map opens in about 350 ms instead of 750 ms, and expanding every branch costs about 310 ms instead of 700 ms.
-- MathJax 刷新样式后的重新测量只读带公式的卡片，屏外的留给把它重新显示出来的那次剔除，不再为了几十张卡片把整张笔记拉回页面量一遍。<br>The re-measure that follows a MathJax stylesheet flush now reads only the cards carrying a formula, leaving culled ones to the cull that shows them again, instead of pulling the whole note back into the page to correct a few dozen cards.
-
-## [1.1.0-beta.2] - 2026-09-14
-
-实验性预发布，接 1.1.0-beta.1；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release following 1.1.0-beta.1; not a stable version until it lands on main.
-
-### 修复 / Fixed
-
-- 面板尺寸变化不再在 Obsidian 的尺寸观察回调里重排地图，而是推迟到下一帧处理：开发者控制台不会再被 "ResizeObserver loop completed with undelivered notifications" 刷屏，大图展开多个分支时也不再持续空转。<br>A pane resize is now recorded and acted on next frame instead of re-laying the map out inside Obsidian's resize observer, so the developer console no longer floods with "ResizeObserver loop completed with undelivered notifications" and a large, unfolded map stops burning frames on it.
-
-## [1.1.0-beta.1] - 2026-09-14
-
-实验性预发布，用于测试性能修复与导出功能；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release for testing the performance fixes and the export feature; not a stable version until it lands on main.
+## [1.1.0] - 2026-09-14
 
 ### 新增 / Added
 
-- 导图现在可以导出成文件了，四条命令：**Export mind map as Canvas**、**as SVG**、**as PNG**、**as HTML**。导图在前台时命令面板里就能找到，标签页的"更多选项"菜单里也单列了一组。导出的就是你眼前这一张 —— 当前的折叠状态、当前的布局、开着的分支配色、正在用的主题配色；折叠起来的分支不在文件里，选中框、查找高亮和悬停按钮也不会被一起带走。<br>The map can now be exported as a file of its own, by four commands: **Export mind map as Canvas**, **as SVG**, **as PNG** and **as HTML**. They are in the command palette while a map is the tab in front, and in a section of the tab's *more options* menu. What is written out is the map you are looking at — the fold state it is in, the layout it is in, the branch colours if they are on, and the colours of the theme you are running; a folded branch is not in the file, and neither are the selection ring, the find highlights or the hover buttons.
-- 文件就落在笔记旁边，同名换后缀，绝不覆盖已有文件 —— 名字被占用时依次变成 `笔记 1.svg`、`笔记 2.svg`，和 Obsidian 自己处理重名的方式一致。Canvas 导出完会在新标签页里打开，其余三种会用通知告诉你文件写到了哪里。<br>The file lands beside the note, same name, new extension, and never on top of something already there — a taken name becomes `Note 1.svg`, `Note 2.svg`, the way a duplicate is named anywhere else in Obsidian. A Canvas export opens in a new tab; the other three say in a notice where the file was written.
-- Canvas 导出是可以继续编辑的那一种：每张卡片是一个文本节点，里面放的是原始 Markdown，所以链接、公式和格式都还活着；内容卡片写入整块原文而不是图上那段预览；连线变成 canvas 的边，从分支生长的那一侧出发。SVG 里文字仍是文字，PNG 按两倍尺寸渲染（超出画布 16384 像素上限时会缩小并在通知里说明），HTML 是一个不含脚本的静态页面。<br>The Canvas export is the editable one: every card is a text node holding its raw markdown, so links, formulas and formatting keep working, note-content cards carry the whole block rather than the preview, and connectors become canvas edges leaving each card on the side its branch grows from. In the SVG, text stays text; the PNG is rendered at twice the map's size, scaled down with a word in the notice when that would pass the 16384-pixel canvas limit; the HTML is one static page with no scripts.
-- 设置 → 行为里多了 **Log render timings** 开关，默认关闭。打开后，每次重绘、每次剔除屏外卡片、每次重画连线都会把耗时和数量写进开发者控制台，同时出现在性能分析的 Timings 轨道上（前缀 `mindmap:`），每条还带上这次重绘是被什么触发的——编辑、折叠、查找、改设置、改变窗口大小。图卡顿时用它定位；平时关着，不会有任何开销。<br>A **Log render timings** toggle in Settings → Behaviour, off by default. Turn it on and every repaint, every pass that decides which cards stay in the page and every connector redraw reports what it took and how much it did, both to the developer console and to the Timings track of a performance profile (under a `mindmap:` prefix), each one tagged with what asked for it — an edit, a fold, a search, a settings change, a resize. It is there for diagnosing a map that feels slow; left off, it costs nothing.
+- 导图可以导出为 Canvas、SVG、PNG 或 HTML 文件：四条命令在命令面板和标签页的"更多选项"菜单里，导出的就是眼前这张图，文件落在笔记旁边，不覆盖已有文件。<br>The map can be exported as a Canvas, SVG, PNG or HTML file: four commands in the command palette and the tab's *more options* menu write out the map as you see it, beside the note, never over an existing file.
+- 设置里新增 **Log render timings** 开关，默认关闭；打开后每次重绘的耗时会写进开发者控制台，用于排查卡顿。<br>A **Log render timings** toggle in settings, off by default; when on, the cost of every repaint goes to the developer console for diagnosing a slow map.
 
 ### 修复 / Fixed
 
-- 大图上敲字发卡：每敲一个字，整张导图的每张卡片都要重新量一遍尺寸，量完又把其中九成藏起来——量的是几百张，看得见的只有一屏。现在只要卡片的文字没变，上一次量到的尺寸就直接沿用，镜头附近之外的卡片连页面都不进；等你平移过去它才被量一次，量出来跟原来不一样才重新排版。几百个节点的笔记，输入和折叠都恢复成一屏内容的开销。<br>Typing on a large map used to stutter: every keystroke re-measured every card on the map and then hid nine tenths of them again — hundreds measured, one screenful visible. A card whose text has not changed now keeps the size it was last measured at, and one the camera is nowhere near is not put into the page at all; it is measured the once, when a pan brings it into view, and only a size that actually turns out different costs a fresh layout. On a note of a few hundred nodes, typing and folding now cost what a screenful costs.
-- 滚轮缩放一顿一顿的：每一格滚动都要重新问一次视口的位置，而上一格刚刚改过画布的变换，浏览器只能当场把整页重新排一遍才能回答。现在视口的位置在一次手势里只读一次，手势结束、相机停稳或窗格改变大小时才重新读取。<br>Wheel zoom jerked instead of gliding: every notch asked the viewport where it was, and since the notch before it had just written a new transform, the browser had to lay the whole page out again to answer. That position is now read once per gesture and re-read when the gesture ends, when the camera settles, or when the pane changes shape.
-- 缓慢平移时屏幕边缘的卡片会反复闪现：进入和退出用的是同一条线，卡片正好压在线上就每隔一帧被撤下又放回。现在放回来的线比撤下去的线靠内 200 像素，一张卡片穿过边缘只发生一次切换；同一帧里最多处理 150 张卡片，剩下的顺延到下一帧，所以一次大跳转不会让某一帧超时。<br>Cards along the edge of the screen flickered during a slow pan: they came back and went away on the same line, so a card sitting on it was taken out and put back every other frame. There is now a 200-pixel band between the two lines, and a card crossing the edge flips once; at most 150 cards change state in any one frame, with the rest carried to the next, so a big jump can no longer overrun a frame.
-- 缩到最小时平移特别沉：连线层是按屏幕距离向外多画一圈的，越缩小这一圈换算到图上就越大，最小倍率下光这一圈就有一万六千像素，相机一走出这块区域整层连线就得重画。现在这个距离有了上限，缩到最小时重画的也只是有限的一块。<br>Panning while zoomed right out was heavy: the connector layer is drawn a margin wider than the screen, and zooming out multiplies that margin — at the smallest zoom it alone came to sixteen thousand pixels of map, all of it rebuilt each time the camera left the region. The distance is now capped, so the layer being rebuilt stays a bounded piece of the map however far out you are.
-- 每次自动保存都会把导图整个重画一遍——保存写回来的是刚刚写出去的那一份，图上没有任何东西需要变。现在这种情况直接跳过。<br>Every autosave repainted the whole map, for a file whose contents were the ones the map had just written and drawn. That round trip is now recognised and skipped.
-- 拖动节点时的落点判定从"每个鼠标事件一次"改成"每帧一次"：指针事件来得比屏幕刷新密得多，而每次判定都要在页面上做一次命中测试并量一次卡片，高亮却一帧只看得见一次。拖动相机和节点数很多时，卡片的悬停动画也一并停掉，只留颜色变化。<br>Dragging a node now works out where it would land once per frame rather than once per pointer event — the events arrive far more often than the screen is painted, and each one cost a hit test and a card measurement for a highlight that can only be seen once a frame. Card hover animations are also dropped while the camera is moving and on maps dense enough for them to matter; the colours still change, they just arrive at once.
+- 解决了大图的性能问题：几百个节点全部展开、平移、缩放、聚焦和拖动时的卡顿与假死已修复。屏幕外的卡片分批处理，编辑和自动保存不再整图重绘，面板尺寸变化不再触发连续重排。<br>Large-map performance: stutter and freezes when expanding every node, panning, zooming, focusing or dragging on a map of several hundred nodes are fixed. Off-screen cards are handled in batches, edits and autosaves no longer repaint the whole map, and a pane resize no longer sets off repeated layouts.
+- 含公式的笔记打开和展开约快一倍：每个公式只排版一次，MathJax 就绪后不再整图重绘。<br>Notes with formulas open and expand about twice as fast: each formula is typeset once, and the map is no longer repainted once MathJax is up.
 
 ## [1.0.10] - 2026-09-10
 
