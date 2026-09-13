@@ -9,6 +9,7 @@ import {
 	specOf,
 } from "./releveling.ts";
 import type { NodeSpec } from "./releveling.ts";
+import { annotationText } from "./annotations.ts";
 
 export interface Mutation {
 	/** Full document text after the edit. */
@@ -97,6 +98,37 @@ export function renameNode(
 	const clean = text.replace(/[\r\n]+/g, " ").trim();
 	if (clean === node.text) return unchanged(parsed);
 	const doc = replaceLine(parsed.doc, node.lineStart, renderNodeLine(node, clean));
+	return done(doc, node.lineStart);
+}
+
+/** Replace only annotation lines; all unrelated source stays byte-identical. */
+export function setAnnotation(parsed: ParsedDoc, node: MindNode, text: string): Mutation {
+	if (node.virtual || parsed.byId.get(node.id) !== node) return unchanged(parsed);
+	const clean = text.replace(/\r\n|\r/g, "\n");
+	if (clean === annotationText(parsed, node) && !(clean === "" && node.annotationIndices.length)) {
+		return unchanged(parsed);
+	}
+	const ranges = node.annotationIndices.map((index) => node.bodyRanges[index]);
+	const first = ranges[0];
+	const indent = first
+		? (/^[ \t]*/.exec(parsed.doc.lines[first[0]])?.[0] ?? "")
+		: node.kind === "listitem"
+			? node.indent + " ".repeat(node.marker.length) + node.spacing
+			: "";
+	const replacement = clean === "" ? [] : clean.split("\n").map((line) =>
+		indent + (line === "" ? ":" : ": " + line));
+	let doc = parsed.doc;
+	// Consolidate separate annotation blocks at the first block's location.
+	for (let i = ranges.length - 1; i >= 0; i--) {
+		const [s, e] = ranges[i];
+		doc = spliceLines(doc, s, e - s + 1, i === 0 ? replacement : []);
+	}
+	if (!first && replacement.length > 0) {
+		doc = spliceLines(doc, node.lineStart + 1, 0, replacement);
+	}
+	if (parsed.doc.eols.at(-1) === "" && doc !== parsed.doc) {
+		doc.eols[doc.eols.length - 1] = "";
+	}
 	return done(doc, node.lineStart);
 }
 

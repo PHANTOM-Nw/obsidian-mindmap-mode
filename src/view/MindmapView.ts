@@ -9,6 +9,7 @@ import type {
 } from "obsidian";
 
 import { parseMarkdown } from "../model/parse.ts";
+import { annotationText, bodyCardCount } from "../model/annotations.ts";
 import type { MindNode, ParsedDoc } from "../model/types.ts";
 import {
 	addChild,
@@ -27,6 +28,7 @@ import {
 	moveNode,
 	outdentNode,
 	renameNode,
+	setAnnotation,
 	reorderDown,
 	reorderUp,
 	replaceBodyRange,
@@ -50,6 +52,7 @@ import { SHORTCUTS, comboToString, resolveBindings } from "./shortcuts.ts";
 import type { KeyCombo, ShortcutBindings } from "./shortcuts.ts";
 import { SearchBar } from "./searchBar.ts";
 import { BlockDialog } from "./blockDialog.ts";
+import { AnnotationDialog } from "./annotationDialog.ts";
 import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
 import { ensureMath, finishRenderMath, mathAvailable, mathSettled } from "./math.ts";
 import type { Direction, DropMode, MapController } from "./interactions.ts";
@@ -232,7 +235,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private detachInteractions: (() => void) | null = null;
 	private popover: HTMLElement | null = null;
-	private dialog: BlockDialog | null = null;
+	private dialog: BlockDialog | AnnotationDialog | null = null;
 	private needsFit = true;
 	private paintedEmpty = false;
 	private paintToken = 0;
@@ -250,7 +253,7 @@ export class MindmapView extends TextFileView implements MapController {
 			// card, and letting a pan start there means the canvas takes pointer
 			// capture, after which Chromium retargets the click to the viewport
 			// and the button never fires.
-			canPan: (target) => !target.closest(".mm-card, .mm-tools"),
+			canPan: (target) => !target.closest(".mm-card, .mm-tools, .mm-annotation"),
 			// Every camera move ends up here, coalesced to one call a frame:
 			// panning, zooming, fitting, and the jumps that framing does.
 			onView: () => this.cullToView(),
@@ -532,6 +535,7 @@ export class MindmapView extends TextFileView implements MapController {
 		const s = this.plugin.settings;
 		return {
 			title: this.file?.basename ?? "Untitled",
+			annotations: s.inlineAnnotations,
 			source: s.source,
 			rootPolicy: s.rootPolicy,
 			maxHeadingDepth: s.maxHeadingDepth,
@@ -768,6 +772,7 @@ export class MindmapView extends TextFileView implements MapController {
 		}));
 
 		node.bodyRanges.forEach((range, index) => {
+			if (node.annotationIndices.includes(index)) return;
 			const body = this.makeBodyNode(parsed, node, range, index);
 			merged.push({ line: range[0], node: body });
 		});
@@ -800,6 +805,7 @@ export class MindmapView extends TextFileView implements MapController {
 			lineStart: range[0],
 			blockEnd: range[1],
 			bodyRanges: [],
+			annotationIndices: [],
 			children: [],
 			// Kept for `revealAncestors`; `owner.children` is never touched, so the
 			// parsed tree stays exactly as the parser left it.
@@ -810,7 +816,7 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	private childCount(node: MindNode, showBody: boolean): number {
-		return node.children.length + (showBody ? node.bodyRanges.length : 0);
+		return node.children.length + (showBody ? bodyCardCount(node) : 0);
 	}
 
 	/**
@@ -821,7 +827,7 @@ export class MindmapView extends TextFileView implements MapController {
 	 * the other side of the root.
 	 */
 	private branchWeight(node: MindNode, showBody: boolean): number {
-		const bodies = showBody ? node.bodyRanges.length : 0;
+		const bodies = showBody ? bodyCardCount(node) : 0;
 		if (node.children.length === 0) return Math.max(1, bodies);
 		let total = bodies;
 		for (const child of node.children) total += this.branchWeight(child, showBody);
@@ -830,7 +836,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	/** Everything a collapsed node is hiding, body cards included. */
 	private hiddenCount(node: MindNode, showBody: boolean): number {
-		let total = showBody ? node.bodyRanges.length : 0;
+		let total = showBody ? bodyCardCount(node) : 0;
 		for (const child of node.children) total += 1 + this.hiddenCount(child, showBody);
 		return total;
 	}
@@ -895,6 +901,7 @@ export class MindmapView extends TextFileView implements MapController {
 			const collapsed = this.collapsedKeys.has(node.key);
 			const isBody = node.kind === "body";
 			const element = buildNodeElement(this.nodeLayer, layout, {
+				annotation: node.annotationIndices.length > 0 ? annotationText(parsed, node) : null,
 				maxWidth: isBody
 					? Math.round(s.maxNodeWidth * BODY_WIDTH_FACTOR)
 					: s.maxNodeWidth,
@@ -1461,6 +1468,12 @@ export class MindmapView extends TextFileView implements MapController {
 				.setIcon("corner-down-right")
 				.onClick(() => this.addChildTo(id)),
 		);
+		if (!node.virtual && this.plugin.settings.inlineAnnotations) {
+			menu.addItem((item) => item
+				.setTitle(node.annotationIndices.length ? "Edit annotation" : "Add annotation")
+				.setIcon("sticky-note")
+				.onClick(() => this.editAnnotation(id)));
+		}
 		if (node.parent) {
 			menu.addItem((item) =>
 				item
@@ -1869,13 +1882,29 @@ export class MindmapView extends TextFileView implements MapController {
 		this.openBody(id, "read");
 	}
 
-	/**
-	 * Show a node's note content whole.
-	 *
-	 * The card only ever holds `previewOf`'s clipped text; the dialog is handed
-	 * `bodyRangeText`, which is the block's exact source, so "expand" really does
-	 * mean the whole block.
-	 */
+	/** Edit the annotation independently of the title and other body content. */
+	editAnnotation(id: string): void {
+		const parsed = this.parsed;
+		const node = parsed?.byId.get(id);
+		if (!parsed || !node || node.virtual || !this.plugin.settings.inlineAnnotations) return;
+		this.closePopover();
+		this.closeDialog();
+		const original = annotationText(parsed, node);
+		const key = node.key;
+		this.dialog = new AnnotationDialog(this.app, node.text, original, (text) => {
+			const snapshot = parseMarkdown(this.data, this.parseOptions());
+			const current = snapshot.byKey.get(key);
+			if (!this.plugin.settings.inlineAnnotations || !current || annotationText(snapshot, current) !== original) {
+				new Notice("This annotation changed while the editor was open. Copy your draft and reopen it before saving.");
+				return false;
+			}
+			this.apply(setAnnotation(snapshot, current, text));
+			return true;
+		}, () => { this.dialog = null; });
+		this.dialog.open();
+	}
+
+	/** Show the original, untruncated source of a note-content block. */
 	openBody(id: string, mode: BlockDialogMode = "edit"): void {
 		const parsed = this.parsed;
 		if (!parsed) return;

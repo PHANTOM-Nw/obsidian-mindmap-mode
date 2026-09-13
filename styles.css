@@ -305,6 +305,33 @@
 	box-shadow: 0 1px 0 0 var(--interactive-accent);
 }
 
+/* Part of the measured node box, never an independently laid-out branch. */
+.mm-annotation {
+	box-sizing: border-box;
+	margin: 7px 4px 3px;
+	border-left: 3px solid var(--text-faint);
+	padding: 0 0 0 10px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-weight: 400;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+	cursor: text;
+	min-height: 1.5em;
+}
+
+.mm-annotation .mm-link[data-href] { cursor: pointer; }
+
+.mm-annotation-input {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 140px;
+	resize: vertical;
+	white-space: pre-wrap;
+}
+
 .mm-placeholder {
 	color: var(--text-faint);
 	font-style: italic;

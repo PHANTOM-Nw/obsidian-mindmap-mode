@@ -40,6 +40,7 @@ export interface MindmapSettings {
 	rememberFolds: boolean;
 	branchColors: boolean;
 	showBodyNodes: boolean;
+	inlineAnnotations: boolean;
 	maxNodeWidth: number;
 	horizontalGap: number;
 	verticalGap: number;
@@ -62,6 +63,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	rememberFolds: true,
 	branchColors: true,
 	showBodyNodes: true,
+	inlineAnnotations: true,
 	maxNodeWidth: 340,
 	horizontalGap: 64,
 	verticalGap: 14,
@@ -180,6 +182,11 @@ const GROUPS: SettingGroup[] = [
 				name: "Show note content",
 				desc: "Paragraphs, code blocks and tables become their own cards, so they fold and unfold with the branch they belong to. Use the expand button on a card to see the whole block rendered, or double-click it to edit.",
 				control: { type: "toggle", key: "showBodyNodes" },
+			},
+			{
+				name: "Inline annotations",
+				desc: "Show colon-prefixed lines under their heading or list item. Consecutive lines keep line breaks; a lone colon adds a blank line. Double-click an annotation to edit. Turn off to restore ordinary body cards.",
+				control: { type: "toggle", key: "inlineAnnotations" },
 			},
 			{
 				name: "Maximum card width",
