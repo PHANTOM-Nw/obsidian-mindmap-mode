@@ -11,6 +11,15 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.1.0-beta.3] - 2026-09-14
+
+实验性预发布，接 1.1.0-beta.2；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release following 1.1.0-beta.2; not a stable version until it lands on main.
+
+### 修复 / Fixed
+
+- 打开含公式的笔记不再整图重绘一遍：MathJax 就绪后直接把公式排进已经画好的卡片，只补一次测量；同时每个 TeX 源只排版一次并克隆复用，509 个节点的地图开图约从 750 ms 降到 350 ms，展开全部分支约从 700 ms 降到 310 ms。<br>Opening a note with formulas no longer paints the map a second time: once MathJax is up the formulas go into the cards already on screen and the map is measured once more, and each distinct TeX source is now typeset once and cloned — a 509-node map opens in about 350 ms instead of 750 ms, and expanding every branch costs about 310 ms instead of 700 ms.
+- MathJax 刷新样式后的重新测量只读带公式的卡片，屏外的留给把它重新显示出来的那次剔除，不再为了几十张卡片把整张笔记拉回页面量一遍。<br>The re-measure that follows a MathJax stylesheet flush now reads only the cards carrying a formula, leaving culled ones to the cull that shows them again, instead of pulling the whole note back into the page to correct a few dozen cards.
+
 ## [1.1.0-beta.2] - 2026-09-14
 
 实验性预发布，接 1.1.0-beta.1；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release following 1.1.0-beta.1; not a stable version until it lands on main.
