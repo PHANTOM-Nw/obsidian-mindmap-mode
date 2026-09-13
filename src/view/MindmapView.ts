@@ -661,10 +661,23 @@ export class MindmapView extends TextFileView implements MapController {
 
 	// --- toolbar --------------------------------------------------------------
 
+	/**
+	 * The corner of the map: the exports in a panel of their own, above the
+	 * panel holding the camera and the map.
+	 *
+	 * Two blocks rather than one crowded one, and the exports are the block that
+	 * sits on top: underneath is where the pointer has always found the zoom, so
+	 * the camera panel keeps the bottom edge. The column sits on `contentEl`,
+	 * outside `.mm-viewport` and so outside `.mm-content` -- which is what the
+	 * export clones, and the reason none of these buttons can end up in a file.
+	 */
 	private buildToolbar(): void {
-		const bar = this.contentEl.createDiv({ cls: "mm-toolbar" });
+		const bars = this.contentEl.createDiv({ cls: "mm-toolbars" });
+		const exports = bars.createDiv({ cls: ["mm-toolbar", "mm-toolbar-export"] });
+		const camera = bars.createDiv({ cls: ["mm-toolbar", "mm-toolbar-camera"] });
 
 		const button = (
+			bar: HTMLElement,
 			icon: string,
 			label: string,
 			onClick: () => void,
@@ -678,14 +691,21 @@ export class MindmapView extends TextFileView implements MapController {
 			return el;
 		};
 
-		button("zoom-in", "Zoom in", () => this.canvas.zoomBy(1.2));
-		button("zoom-out", "Zoom out", () => this.canvas.zoomBy(1 / 1.2));
-		button("maximize", "Fit to window", () => this.fit());
-		button("crosshair", "Centre on selection", () => this.centreOnSelection());
-		button("chevrons-up-down", "Expand all", () => this.expandAll());
-		button("chevrons-down-up", "Collapse all", () => this.collapseAll());
-		button("search", "Find in the map", () => this.openSearch());
-		button("help-circle", "Keyboard shortcuts", () => this.showShortcuts());
+		// The same four entries the palette and the tab menu are built from, in
+		// the same order and under the same names: three places offering the
+		// export, one list saying what the export is.
+		for (const entry of EXPORT_COMMANDS) {
+			button(exports, entry.icon, entry.menu, () => this.exportAs(entry.format));
+		}
+
+		button(camera, "zoom-in", "Zoom in", () => this.canvas.zoomBy(1.2));
+		button(camera, "zoom-out", "Zoom out", () => this.canvas.zoomBy(1 / 1.2));
+		button(camera, "maximize", "Fit to window", () => this.fit());
+		button(camera, "crosshair", "Centre on selection", () => this.centreOnSelection());
+		button(camera, "chevrons-up-down", "Expand all", () => this.expandAll());
+		button(camera, "chevrons-down-up", "Collapse all", () => this.collapseAll());
+		button(camera, "search", "Find in the map", () => this.openSearch());
+		button(camera, "help-circle", "Keyboard shortcuts", () => this.showShortcuts());
 	}
 
 	/**
