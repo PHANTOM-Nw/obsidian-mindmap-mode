@@ -23,6 +23,20 @@
 	padding: 0;
 	overflow: hidden;
 	height: 100%;
+	/*
+	 * The map may not be able to change the size of the box it sits in, and this
+	 * is what says so rather than hoping.
+	 *
+	 * Obsidian's workspace watches this element with a `ResizeObserver` and calls
+	 * `onResize` from it. Anything inside that could push this box around -- a
+	 * layer wider than the pane, a scrollbar appearing because a theme gave
+	 * `.view-content` an `overflow` of its own -- turns that observer into a
+	 * feedback loop: the map resizes the pane, the pane resizes the map, and
+	 * Chromium logs "ResizeObserver loop completed with undelivered
+	 * notifications" on every pass. Layout containment makes the inside and the
+	 * outside independent, so that is not a shape this file can take.
+	 */
+	contain: layout paint;
 }
 
 /* --- viewport ------------------------------------------------------------ */
@@ -41,6 +55,10 @@
 		transparent 0
 	);
 	background-size: 28px 28px;
+	/* The same guarantee as on the view root, one level in: the map is tens of
+	   thousands of pixels wide and every card in it is written on a frame, and
+	   none of that may reach the layout of anything outside this box. */
+	contain: layout paint;
 }
 
 .mm-viewport.is-panning {
@@ -75,7 +93,8 @@
  * past a standing pointer, flipping :hover on and off down the whole row. And a
  * map dense enough to be slow is one where the transitions are the least of
  * what a hover costs -- `mm-dense` is set at paint time, past the node count in
- * `MindmapView`.
+ * `MindmapView`, and set on the content layer rather than the view root so that
+ * no paint writes a class to the box the workspace observes for resizes.
  *
  * Only the animation goes. The hover colours stay exactly as they are; they
  * simply arrive at once.
@@ -84,8 +103,8 @@
 .mm-viewport.is-dragging-node .mm-add,
 .mm-content.mm-moving .mm-card,
 .mm-content.mm-moving .mm-add,
-.mindmap-mode.mm-dense .mm-card,
-.mindmap-mode.mm-dense .mm-add {
+.mm-content.mm-dense .mm-card,
+.mm-content.mm-dense .mm-add {
 	transition: none;
 }
 

@@ -45,6 +45,7 @@ import type { Snapshot } from "../export/snapshot.ts";
 import { EXPORT_COMMANDS, runExport } from "../export/run.ts";
 import type { ExportFormat } from "../export/run.ts";
 import { Canvas } from "./canvas.ts";
+import { Frame } from "./frame.ts";
 import { clampedMargin, covers, emptyPlan, overlaps, planCull, viewBoxFrom } from "./culling.ts";
 import type { CullPlan, ViewBox } from "./culling.ts";
 import { Perf } from "./perf.ts";
@@ -251,8 +252,14 @@ export class MindmapView extends TextFileView implements MapController {
 	private layoutElements: Array<NodeElement | null> = [];
 	/** Reused between frames: a pan plans its culling without allocating. */
 	private readonly cullPlan: CullPlan = emptyPlan();
-	/** The continuation that works off a backlog the budget could not. */
-	private cullFrame = 0;
+	/**
+	 * The one frame everything the view defers reaches it through: the cull's
+	 * continuation when a budget ran out, and the pane resize, which may not do
+	 * any of its work where Obsidian calls it from.
+	 */
+	private readonly frame = new Frame(window);
+	/** A pane resize the frame has not acted on yet. */
+	private resized = false;
 	/**
 	 * The tree the last paint built, kept so a cull that puts an unmeasured card
 	 * back can measure it and lay the map out again around it.
@@ -481,7 +488,8 @@ export class MindmapView extends TextFileView implements MapController {
 	override clear(): void {
 		this.data = "";
 		this.parsed = null;
-		this.cancelCullFrame();
+		this.cancelFrame();
+		this.resized = false;
 		this.layoutNodes = [];
 		this.layoutElements = [];
 		this.paintRoot = null;
@@ -513,7 +521,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	override async onClose(): Promise<void> {
 		this.paintToken++;
-		this.cancelCullFrame();
+		this.cancelFrame();
 		// Closing the tab is the last chance to keep a search out of the record:
 		// what reaches disk has to be the fold shape the user chose.
 		if (this.restoreSearchFolds()) this.rememberState();
@@ -525,17 +533,49 @@ export class MindmapView extends TextFileView implements MapController {
 		this.canvas.destroy();
 	}
 
+	/**
+	 * The pane changed shape.
+	 *
+	 * Nothing here may read or write the DOM, and the frame below is why. Obsidian
+	 * reports a resize from a `ResizeObserver`, so this runs inside that
+	 * observer's own callback -- and anything that touches layout there changes
+	 * the boxes the observer is in the middle of reporting on. Chromium's answer
+	 * is to log "ResizeObserver loop completed with undelivered notifications"
+	 * and schedule another frame to deliver what it had to drop, which calls this
+	 * again: a console full of warnings and a map that never stops re-culling.
+	 * Even the read is enough -- `cullToView` asks the viewport for its size, and
+	 * on a map with a few hundred cards that forced layout is the expensive half.
+	 *
+	 * So the resize is only recorded here. Invalidating the cached rect is pure
+	 * bookkeeping -- it drops a number, it does not measure anything -- and the
+	 * frame does the rest, after the observer has finished and a size change is
+	 * once again just a size change. A split dragged across the window reports
+	 * dozens of resizes a frame; they coalesce into one cull.
+	 */
 	override onResize(): void {
-		// A view painted while hidden measures every card as zero-sized.
-		if (this.paintedEmpty) {
+		// The one thing that moves the viewport itself without going through
+		// `Canvas.apply`, which is what the cached rect is for.
+		this.canvas.invalidateRect();
+		this.resized = true;
+		this.requestFrame();
+	}
+
+	/** Whatever the view has deferred, on the next frame, once. */
+	private requestFrame(): void {
+		this.frame.request(() => this.runFrame());
+	}
+
+	private runFrame(): void {
+		const resized = this.resized;
+		this.resized = false;
+		// A view painted while hidden measured every card as zero-sized, so there
+		// is no map to cull -- only one to paint, now that the pane has a size.
+		if (resized && this.paintedEmpty) {
 			this.render("resize");
 			return;
 		}
 		// Nothing moved the camera, but the window it looks through changed
-		// shape, so what is on screen changed with it. This is the one way the
-		// view box moves without going through `Canvas.apply`, and the one thing
-		// that moves the viewport itself, which is what the cached rect is for.
-		this.canvas.invalidateRect();
+		// shape, so what is on screen changed with it.
 		this.cullToView();
 	}
 
@@ -1077,7 +1117,10 @@ export class MindmapView extends TextFileView implements MapController {
 		}
 		this.perf.span("paint-build", started, { reason, nodes: visible.length, reused });
 
-		this.contentEl.toggleClass("mm-dense", visible.length > DENSE_NODE_COUNT);
+		// On the content layer, not on the view root: the root is the box
+		// Obsidian's workspace observes for resizes, and nothing a paint does may
+		// give that observer a reason to fire.
+		this.canvas.content.toggleClass("mm-dense", visible.length > DENSE_NODE_COUNT);
 
 		// Attached only now that every card exists: one mutation of the live
 		// tree per paint, and the measuring pass below is the first thing that
@@ -1390,7 +1433,7 @@ export class MindmapView extends TextFileView implements MapController {
 	 */
 	private cullToView(force = false): void {
 		const started = this.perf.now();
-		this.cancelCullFrame();
+		this.cancelFrame();
 
 		// One read of the viewport, two boxes: the cards' and the connectors'.
 		const metrics = this.canvas.metrics();
@@ -1443,12 +1486,9 @@ export class MindmapView extends TextFileView implements MapController {
 			paths = this.drawEdges(this.edgeView);
 		}
 
-		if (plan.backlog > 0) {
-			this.cullFrame = window.requestAnimationFrame(() => {
-				this.cullFrame = 0;
-				this.cullToView();
-			});
-		}
+		// A resize still on the books is one this cull was not the answer to --
+		// only `runFrame` knows what a map painted at zero size owes it.
+		if (plan.backlog > 0 || this.resized) this.requestFrame();
 
 		this.perf.span("cull", started, {
 			total: nodes.length,
@@ -1467,10 +1507,8 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	/** Nothing may be left to fire at a map that has been repainted or closed. */
-	private cancelCullFrame(): void {
-		if (this.cullFrame === 0) return;
-		window.cancelAnimationFrame(this.cullFrame);
-		this.cullFrame = 0;
+	private cancelFrame(): void {
+		this.frame.cancel();
 	}
 
 	/** Returns how many connectors it drew. */
