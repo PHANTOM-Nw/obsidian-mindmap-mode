@@ -45,6 +45,11 @@ export interface MindmapSettings {
 	verticalGap: number;
 	addHeaderButton: boolean;
 	/**
+	 * Timing for the render path, in the console and the DevTools Timings track.
+	 * Off is the default and costs one boolean branch per call site.
+	 */
+	debugTiming: boolean;
+	/**
 	 * Only the shortcuts the user has changed, spelled the way `parseCombo`
 	 * reads them. An action missing here answers to its default; an action with
 	 * an empty list answers to nothing.
@@ -66,6 +71,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	horizontalGap: 64,
 	verticalGap: 14,
 	addHeaderButton: true,
+	debugTiming: false,
 	shortcuts: {},
 };
 
@@ -218,6 +224,11 @@ const GROUPS: SettingGroup[] = [
 				name: "Button in the note header",
 				desc: "Adds a mind map toggle beside the other view actions. The command and ribbon icon work either way.",
 				control: { type: "toggle", key: HEADER_BUTTON_KEY },
+			},
+			{
+				name: "Log render timings",
+				desc: "Write how long each paint, cull and connector redraw took to the developer console, and to the Timings track of a performance profile. For diagnosing a slow map; leave it off otherwise.",
+				control: { type: "toggle", key: "debugTiming" },
 			},
 		],
 	},
