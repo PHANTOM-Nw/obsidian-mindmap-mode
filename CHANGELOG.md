@@ -11,29 +11,19 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
-## [1.1.0-beta] - 2026-09-14
-
-实验性预发布，在 1.1.0 之上验证两项改动；正式版仍是 1.1.0。<br>An experimental pre-release on top of 1.1.0 to test two changes; the stable version remains 1.1.0.
-
-### 新增 / Added
-
-- 导图右下角工具栏新增一行导出按钮：Canvas、SVG、PNG、HTML，与命令面板和标签页菜单里的四条导出命令完全一致。<br>Added an export row to the map's bottom-right toolbar — Canvas, SVG, PNG and HTML, the same four exports as the command palette and the tab menu.
-
-### 修复 / Fixed
-
-- 修复大图在每次拖动或缩放开始与结束时的轻微卡顿：相机移动标记上挂的样式规则会让全图所有卡片重算样式，515 个节点的导图上每次要 19 毫秒。<br>Fixed a hitch at the start and end of every pan and zoom on a large map: a style rule keyed on the camera-moving flag re-styled every card on the map, costing a 515-node map 19 ms each time.
-
 ## [1.1.0] - 2026-09-14
 
 ### 新增 / Added
 
 - 导图可以导出为 Canvas、SVG、PNG 或 HTML 文件：四条命令在命令面板和标签页的"更多选项"菜单里，导出的就是眼前这张图，文件落在笔记旁边，不覆盖已有文件。<br>The map can be exported as a Canvas, SVG, PNG or HTML file: four commands in the command palette and the tab's *more options* menu write out the map as you see it, beside the note, never over an existing file.
 - 设置里新增 **Log render timings** 开关，默认关闭；打开后每次重绘的耗时会写进开发者控制台，用于排查卡顿。<br>A **Log render timings** toggle in settings, off by default; when on, the cost of every repaint goes to the developer console for diagnosing a slow map.
+- 导图右下角多了一块独立的导出面板，Canvas、SVG、PNG、HTML 四个按钮，就在相机工具栏上方，与命令面板和标签页菜单里的导出命令一致。<br>A separate export panel sits in the map's bottom-right corner, just above the camera toolbar, with Canvas, SVG, PNG and HTML buttons matching the export commands in the palette and the tab menu.
 
 ### 修复 / Fixed
 
 - 解决了大图的性能问题：几百个节点全部展开、平移、缩放、聚焦和拖动时的卡顿与假死已修复。屏幕外的卡片分批处理，编辑和自动保存不再整图重绘，面板尺寸变化不再触发连续重排。<br>Large-map performance: stutter and freezes when expanding every node, panning, zooming, focusing or dragging on a map of several hundred nodes are fixed. Off-screen cards are handled in batches, edits and autosaves no longer repaint the whole map, and a pane resize no longer sets off repeated layouts.
 - 含公式的笔记打开和展开约快一倍：每个公式只排版一次，MathJax 就绪后不再整图重绘。<br>Notes with formulas open and expand about twice as fast: each formula is typeset once, and the map is no longer repainted once MathJax is up.
+- 修复大图每次拖动或缩放开始与结束时的轻微卡顿：相机移动标记上挂的样式规则曾让全图所有卡片重算样式。<br>Fixed a hitch at the start and end of every pan and zoom on a large map, where a style rule keyed on the camera-moving flag re-styled every card.
 
 ## [1.0.10] - 2026-09-10
 
