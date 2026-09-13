@@ -45,7 +45,7 @@ import type { Snapshot } from "../export/snapshot.ts";
 import { EXPORT_COMMANDS, runExport } from "../export/run.ts";
 import type { ExportFormat } from "../export/run.ts";
 import { Canvas } from "./canvas.ts";
-import { clampedMargin, covers, emptyPlan, planCull, viewBoxFrom } from "./culling.ts";
+import { clampedMargin, covers, emptyPlan, overlaps, planCull, viewBoxFrom } from "./culling.ts";
 import type { CullPlan, ViewBox } from "./culling.ts";
 import { Perf } from "./perf.ts";
 import { createEdgeLayer, renderEdges } from "./edges.ts";
@@ -142,6 +142,30 @@ const EDGE_MAX_CONTENT = 6000;
 const CULL_BUDGET = 150;
 
 /**
+ * How many times a cull may measure cards it just showed and lay the map out
+ * again before it leaves the rest to the next one.
+ *
+ * Each round is a whole layout, and what it corrects are sizes that were real
+ * measurements to begin with, so stopping early costs a little drift and never
+ * a wrong map.
+ */
+const REMEASURE_ROUNDS = 3;
+
+/**
+ * What asked for the work, carried into the timing log so a slow map can be
+ * read as "typing is slow" rather than as a list of milliseconds.
+ */
+export type PaintReason =
+	| "edit"
+	| "fold"
+	| "search"
+	| "settings"
+	| "resize"
+	| "setViewData"
+	| "math-remeasure"
+	| "cull";
+
+/**
  * What a body card shows. The full text stays one click away on the card's own
  * expand button, so this only has to stop a 300-line code block from becoming a
  * 300-line card.
@@ -220,6 +244,13 @@ export class MindmapView extends TextFileView implements MapController {
 	private readonly cullPlan: CullPlan = emptyPlan();
 	/** The continuation that works off a backlog the budget could not. */
 	private cullFrame = 0;
+	/**
+	 * The tree the last paint built, kept so a cull that puts an unmeasured card
+	 * back can measure it and lay the map out again around it.
+	 */
+	private paintRoot: LayoutNode | null = null;
+	/** True while that re-measure is running, so it cannot re-enter itself. */
+	private remeasuring = false;
 	/** The laid-out size of the whole map, for redrawing the connector layer. */
 	private mapWidth = 0;
 	private mapHeight = 0;
@@ -402,6 +433,16 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	override setViewData(data: string, clear: boolean): void {
+		// The save round-trip hands back the exact string that was just written,
+		// and a map already drawn from it has nothing to do about it. `clear`
+		// means a different file and is never skipped; neither is the first call
+		// for a file, which has no parse behind it yet.
+		if (!clear && data === this.data && this.parsed !== null) {
+			this.perf.event("setViewData", { clear, skipped: true });
+			return;
+		}
+		this.perf.event("setViewData", { clear, skipped: false });
+
 		this.data = data;
 		if (clear) {
 			// Torn down without restoring folds: `this.file` already points at the
@@ -414,12 +455,18 @@ export class MindmapView extends TextFileView implements MapController {
 			this.undoStack = [];
 			this.redoStack = [];
 			this.needsFit = true;
+			// Nothing this map measured is about the note now arriving, and the
+			// camera is about to be reframed for it, so the next paint measures
+			// every card rather than reusing a size from the last note.
+			this.layoutNodes = [];
+			this.layoutElements = [];
+			this.paintRoot = null;
 			// `clear` means a different file, which is the only moment the map
 			// may re-fold. Saves and external edits arrive with clear === false,
 			// so typing can never collapse the tree out from under the user.
 			this.foldSeedPending = true;
 		}
-		this.render();
+		this.render("setViewData");
 	}
 
 	override clear(): void {
@@ -428,6 +475,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.cancelCullFrame();
 		this.layoutNodes = [];
 		this.layoutElements = [];
+		this.paintRoot = null;
 		this.elements.clear();
 		this.resetSearch();
 		this.searchQuery = { text: "", regex: false };
@@ -471,7 +519,7 @@ export class MindmapView extends TextFileView implements MapController {
 	override onResize(): void {
 		// A view painted while hidden measures every card as zero-sized.
 		if (this.paintedEmpty) {
-			this.render();
+			this.render("resize");
 			return;
 		}
 		// Nothing moved the camera, but the window it looks through changed
@@ -515,9 +563,13 @@ export class MindmapView extends TextFileView implements MapController {
 	refresh(): void {
 		this.shortcutBindings = null;
 		this.perf.enabled = this.plugin.settings.debugTiming;
+		// A setting can change what every card measures, so the next paint has to
+		// measure them rather than reuse the sizes this one left behind.
+		this.layoutNodes = [];
+		this.layoutElements = [];
 		if (this.scope) this.bindScope(this.scope);
 		this.canvas.setOptions({ wheel: this.plugin.settings.wheel });
-		this.render();
+		this.render("settings");
 	}
 
 	bindings(): ShortcutBindings {
@@ -611,7 +663,7 @@ export class MindmapView extends TextFileView implements MapController {
 		};
 	}
 
-	private render(): void {
+	private render(reason: PaintReason): void {
 		this.parsed = parseMarkdown(this.data, this.parseOptions());
 
 		// Before anything reveals a node: seeding replaces the whole set.
@@ -631,13 +683,13 @@ export class MindmapView extends TextFileView implements MapController {
 			if (target) {
 				this.selectionKey = target.key;
 				this.revealAncestors(target);
-				this.paint();
+				this.paint(reason);
 				if (focus.edit) this.beginEdit(target.id);
 				this.revealSelection();
 				return;
 			}
 		}
-		this.paint();
+		this.paint(reason);
 	}
 
 	/**
@@ -797,14 +849,14 @@ export class MindmapView extends TextFileView implements MapController {
 	expandAll(): void {
 		this.markGlobalAnchor();
 		this.foldFrom(Infinity);
-		this.paint();
+		this.paint("fold");
 	}
 
 	/** Back to the view the map opens with. */
 	collapseAll(): void {
 		this.markGlobalAnchor();
 		this.foldFrom(INITIAL_EXPAND_LEVEL);
-		this.paint();
+		this.paint("fold");
 	}
 
 	/**
@@ -915,9 +967,10 @@ export class MindmapView extends TextFileView implements MapController {
 		return null;
 	}
 
-	private paint(): void {
+	private paint(reason: PaintReason): void {
 		const parsed = this.parsed;
 		if (!parsed) return;
+		const started = this.perf.now();
 
 		// Invalidates any measurement callback still in flight from an earlier
 		// paint, so a slow MathJax flush cannot lay out a map that is now gone.
@@ -961,7 +1014,15 @@ export class MindmapView extends TextFileView implements MapController {
 			branch.weight = this.branchWeight(branch.node, showBody);
 		}
 
+		// What the last paint measured, and where it put it. A card whose text has
+		// not changed measures the same, so the only ones this paint has to lay
+		// out are the ones it is about to show.
+		const previous = new Map<string, LayoutNode>();
+		for (const layout of this.layoutNodes) previous.set(layout.node.id, layout);
+		const nearView = viewBoxFrom(this.canvas.metrics(), CULL_MARGIN);
+
 		let sawMath = false;
+		let reused = 0;
 		for (const layout of visible) {
 			const node = layout.node;
 			const collapsed = this.collapsedKeys.has(node.key);
@@ -980,7 +1041,32 @@ export class MindmapView extends TextFileView implements MapController {
 			});
 			this.elements.set(node.id, element);
 			if (element.hasMath) sawMath = true;
+
+			// Built straight into the state the cull would have put it in anyway,
+			// which is the point: a card that the camera is nowhere near costs this
+			// paint no layout at all. Its size is the one it was measured at, and
+			// the cull that shows it again is what finally measures it.
+			const before = previous.get(node.id);
+			if (before === undefined || before.width === 0 || nearView === null) continue;
+			// Everything the card's own box is drawn from has to be what it was:
+			// the text, the checkbox in front of it, and the two attributes the
+			// stylesheet sizes a card by -- `data-depth` and `data-kind`.
+			if (
+				before.node.text !== node.text ||
+				before.node.checkbox !== node.checkbox ||
+				before.node.kind !== node.kind ||
+				before.depth !== layout.depth ||
+				overlaps(before, nearView)
+			) {
+				continue;
+			}
+			layout.width = before.width;
+			layout.height = before.height;
+			element.offscreen = true;
+			element.el.addClass("is-offscreen");
+			reused++;
 		}
+		this.perf.span("paint-build", started, { reason, nodes: visible.length, reused });
 
 		// Attached only now that every card exists: one mutation of the live
 		// tree per paint, and the measuring pass below is the first thing that
@@ -991,10 +1077,12 @@ export class MindmapView extends TextFileView implements MapController {
 		// changes again before the next paint.
 		this.rememberState();
 
+		this.paintRoot = rootLayout;
 		const wasFitting = this.needsFit;
 		const wasFocusing = this.restoreFocusKey;
 		const wasRevealing = this.pendingReveal;
-		this.measureAndPlace(rootLayout, visible, anchor);
+		this.measureAndPlace(rootLayout, visible, anchor, reason);
+		this.perf.span("paint", started, { reason, nodes: visible.length, reused });
 		if (!sawMath) return;
 
 		if (!mathSettled()) {
@@ -1011,7 +1099,7 @@ export class MindmapView extends TextFileView implements MapController {
 				// Outside the guard on purpose: a jump has to be honoured on the
 				// map that formulas were actually rendered into, fit or no fit.
 				this.pendingReveal = wasRevealing;
-				this.paint();
+				this.paint("math-remeasure");
 			});
 			return;
 		}
@@ -1021,8 +1109,18 @@ export class MindmapView extends TextFileView implements MapController {
 		// formula reaching for a glyph nobody has used yet measures short until
 		// the flush lands. Re-measure, but never rebuild: `measureAndPlace` only
 		// reads and positions, so it cannot schedule itself again.
+		//
+		// The flush is only ever worth a re-measure while a glyph is still new to
+		// the session, and the formulas on screen say whether this paint was one
+		// of those: when none of them moved, the whole-map pass is a layout of
+		// every card in the note for no change at all, so it is skipped.
 		void finishRenderMath().then(() => {
 			if (token !== this.paintToken) return;
+			const mathStarted = this.perf.now();
+			if (!this.mathSizeChanged(visible)) {
+				this.perf.span("math-remeasure", mathStarted, { changed: false });
+				return;
+			}
 			if (wasFitting) {
 				this.needsFit = true;
 				this.restoreFocusKey = wasFocusing;
@@ -1032,8 +1130,30 @@ export class MindmapView extends TextFileView implements MapController {
 			// culled one would hand back a zero. `measureAndPlace` culls again
 			// at the end, against wherever the camera lands.
 			this.showAllCards();
-			this.measureAndPlace(rootLayout, visible, anchor);
+			this.measureAndPlace(rootLayout, visible, anchor, "math-remeasure");
+			this.perf.span("math-remeasure", mathStarted, { changed: true });
 		});
+	}
+
+	/**
+	 * Did the stylesheet flush move a formula that is actually on screen?
+	 *
+	 * Only the cards in the document are asked: a culled one has no size to
+	 * compare, and a card built off screen is carrying a size from a paint where
+	 * it was measured, not from this one.
+	 */
+	private mathSizeChanged(visible: LayoutNode[]): boolean {
+		for (const layout of visible) {
+			const element = this.elements.get(layout.node.id);
+			if (!element || !element.hasMath || element.offscreen) continue;
+			if (
+				element.el.offsetWidth !== layout.width ||
+				element.el.offsetHeight !== layout.height
+			) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -1047,8 +1167,10 @@ export class MindmapView extends TextFileView implements MapController {
 		rootLayout: LayoutNode,
 		visible: LayoutNode[],
 		anchor: Anchor | null,
+		reason: PaintReason,
 	): void {
-		const s = this.plugin.settings;
+		const started = this.perf.now();
+		let measured = 0;
 
 		// One batched read pass: every write above, every measurement here.
 		// offsetWidth, not getBoundingClientRect -- the cards sit inside a
@@ -1061,18 +1183,44 @@ export class MindmapView extends TextFileView implements MapController {
 			if (!element || element.offscreen) continue;
 			layout.width = element.el.offsetWidth;
 			layout.height = element.el.offsetHeight;
+			element.measured = true;
+			measured++;
 		}
+		this.perf.span("paint-measure", started, { reason, measured });
 
 		this.paintedEmpty = rootLayout.width === 0;
 		if (this.paintedEmpty) return;
 
+		this.applySelection();
+		this.applySearchState();
+		this.place(rootLayout, anchor, reason, true);
+	}
+
+	/**
+	 * Lay the measured cards out and write the result to the DOM.
+	 *
+	 * `frame` is what separates a paint from a re-measure: a paint owes the
+	 * camera whatever it was promised -- a fit, a restored focus, a jump to a
+	 * search match -- and a re-measure of a few cards the cull just showed owes
+	 * it nothing at all.
+	 */
+	private place(
+		rootLayout: LayoutNode,
+		anchor: Anchor | null,
+		reason: PaintReason,
+		frame: boolean,
+	): void {
+		const s = this.plugin.settings;
+		const laidOut = this.perf.now();
 		const result = layoutTree(rootLayout, {
 			mode: s.layout,
 			horizontalGap: s.horizontalGap,
 			verticalGap: s.verticalGap,
 			padding: 60,
 		});
+		this.perf.span("paint-layout", laidOut, { reason, nodes: result.nodes.length });
 
+		const written = this.perf.now();
 		for (const layout of result.nodes) {
 			const element = this.elements.get(layout.node.id);
 			if (!element) continue;
@@ -1088,22 +1236,60 @@ export class MindmapView extends TextFileView implements MapController {
 		this.layoutElements = result.nodes.map(
 			(layout) => this.elements.get(layout.node.id) ?? null,
 		);
+		this.perf.span("paint-transform", written, { reason, nodes: result.nodes.length });
 
-		this.applySelection();
-		this.applySearchState();
-
-		// Read here, past the `paintedEmpty` return and before the framing
-		// branches: a map painted while hidden keeps its jump until `onResize`
-		// repaints it, and a jump that survives the read is spent either way.
-		const reveal = this.pendingReveal;
-		this.pendingReveal = null;
-		this.frameMap(result, anchor, reveal);
+		if (frame) {
+			// Read here, past the `paintedEmpty` return and before the framing
+			// branches: a map painted while hidden keeps its jump until `onResize`
+			// repaints it, and a jump that survives the read is spent either way.
+			const reveal = this.pendingReveal;
+			this.pendingReveal = null;
+			this.frameMap(result, anchor, reveal);
+		}
 
 		// Last, and unconditionally: the camera has finished moving, so this is
 		// the first moment the map can tell which cards are worth keeping. It
 		// draws the connectors too, which is why it runs even when nothing has
 		// changed hands -- a fresh paint has an empty layer to fill.
 		this.cullToView(true);
+	}
+
+	/**
+	 * Measure the cards a cull has just put back for the first time, and lay the
+	 * map out again around them.
+	 *
+	 * A card built off screen carries the size the paint before it measured, and
+	 * that size is what the layout used. Once it is actually in the document it
+	 * can say what it really is, and a title that grew or shrank since moves
+	 * everything below it -- so the map is placed again, and the cull at the end
+	 * of that may show more cards that have never been measured either. Bounded
+	 * rather than run to a fixed point: each round is a whole layout, and the
+	 * sizes it is correcting were real measurements to begin with.
+	 */
+	private measureNewlyShown(): void {
+		const root = this.paintRoot;
+		if (root === null || this.remeasuring) return;
+		this.remeasuring = true;
+		try {
+			for (let round = 0; round < REMEASURE_ROUNDS; round++) {
+				const started = this.perf.now();
+				let measured = 0;
+				for (let i = 0; i < this.layoutNodes.length; i++) {
+					const element = this.layoutElements[i];
+					if (!element || element.offscreen || element.measured) continue;
+					const layout = this.layoutNodes[i];
+					layout.width = element.el.offsetWidth;
+					layout.height = element.el.offsetHeight;
+					element.measured = true;
+					measured++;
+				}
+				if (measured === 0) return;
+				this.perf.span("cull-measure", started, { measured, round });
+				this.place(root, null, "cull", false);
+			}
+		} finally {
+			this.remeasuring = false;
+		}
 	}
 
 	/** Point the camera at whatever this paint owes it. */
@@ -1186,11 +1372,13 @@ export class MindmapView extends TextFileView implements MapController {
 			plan,
 		);
 
+		let unmeasured = false;
 		for (const i of plan.show) {
 			const element = cards[i];
 			if (!element) continue;
 			element.offscreen = false;
 			element.el.removeClass("is-offscreen");
+			if (!element.measured) unmeasured = true;
 		}
 		for (const i of plan.hide) {
 			const element = cards[i];
@@ -1224,6 +1412,12 @@ export class MindmapView extends TextFileView implements MapController {
 			edgesRedrawn: redrew,
 			pathCount: paths,
 		});
+
+		// Last: a card that has never been in the document is on the map at the
+		// size some earlier paint measured, and only now can it say what it
+		// really is. The re-measure lays the map out again and culls once more,
+		// which is why nothing below here may depend on this frame's plan.
+		if (unmeasured) this.measureNewlyShown();
 	}
 
 	/** Nothing may be left to fire at a map that has been repainted or closed. */
@@ -1298,7 +1492,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.data = text;
 		this.pendingFocus = focusLine >= 0 ? { line: focusLine, edit } : null;
 		this.requestSave();
-		this.render();
+		this.render("edit");
 	}
 
 	private withNode(id: string, run: (parsed: ParsedDoc, node: MindNode) => void): void {
@@ -1392,7 +1586,7 @@ export class MindmapView extends TextFileView implements MapController {
 					this.apply(renameNode(parsed, current, value));
 				});
 			} else {
-				this.render();
+				this.render("edit");
 			}
 			this.canvas.viewport.focus({ preventScroll: true });
 		};
@@ -1510,7 +1704,7 @@ export class MindmapView extends TextFileView implements MapController {
 			this.markAnchor(node.key);
 			if (this.collapsedKeys.has(node.key)) this.collapsedKeys.delete(node.key);
 			else this.collapsedKeys.add(node.key);
-			this.paint();
+			this.paint("fold");
 		});
 	}
 
@@ -1775,7 +1969,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.resetSearch();
 		if (refolded) {
 			this.markGlobalAnchor();
-			this.paint();
+			this.paint("search");
 		} else {
 			this.applySearchState();
 		}
@@ -1881,7 +2075,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.markAnchor(held && this.isVisible(held) ? held.key : this.parsed?.root.key);
 		// The card may not exist yet; the paint that builds it does the pan.
 		this.pendingReveal = key;
-		this.paint();
+		this.paint("search");
 	}
 
 	/**

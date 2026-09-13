@@ -165,6 +165,14 @@ export interface NodeElement {
 	 * per node, and so nothing can ask a hidden card for its size by accident.
 	 */
 	offscreen: boolean;
+	/**
+	 * Also the view's: false until this card has been measured in the document.
+	 *
+	 * A card built off screen is given the size the last paint measured for it
+	 * rather than a layout of its own, so this is what tells the cull that put it
+	 * back that it owes the map a measurement.
+	 */
+	measured: boolean;
 }
 
 export function buildNodeElement(
@@ -249,5 +257,16 @@ export function buildNodeElement(
 		}
 	}
 
-	return { el, card, text, toggle, checkbox, expand, add, hasMath, offscreen: false };
+	return {
+		el,
+		card,
+		text,
+		toggle,
+		checkbox,
+		expand,
+		add,
+		hasMath,
+		offscreen: false,
+		measured: false,
+	};
 }
