@@ -1296,9 +1296,13 @@ export class MindmapView extends TextFileView implements MapController {
 		try {
 			for (let round = 0; round < REMEASURE_ROUNDS; round++) {
 				const started = this.perf.now();
-				const measured = this.measureUnmeasured();
+				const { measured, changed } = this.measureUnmeasured();
 				if (measured === 0) return;
-				this.perf.span("cull-measure", started, { measured, round });
+				this.perf.span("cull-measure", started, { measured, changed, round });
+				// Almost always nothing: the size a card was built with is one it
+				// was measured at, under the same text and the same rules, so the
+				// map it was laid out into is already the right one.
+				if (changed === 0) return;
 				this.place(root, null, "cull", false);
 			}
 		} finally {
@@ -1308,20 +1312,30 @@ export class MindmapView extends TextFileView implements MapController {
 
 	/**
 	 * Measure every card that is in the document without ever having been
-	 * measured there, and report how many there were.
+	 * measured there.
+	 *
+	 * Reports both how many it read and how many turned out to be a size other
+	 * than the one the layout was given, because only the second number is worth
+	 * a layout: the cards it read are ones a cull has just put back, and a card
+	 * whose reused size was right changes nothing about where anything sits.
 	 */
-	private measureUnmeasured(): number {
+	private measureUnmeasured(): { measured: number; changed: number } {
 		let measured = 0;
+		let changed = 0;
 		for (let i = 0; i < this.layoutNodes.length; i++) {
 			const element = this.layoutElements[i];
 			if (!element || element.offscreen || element.measured) continue;
 			const layout = this.layoutNodes[i];
-			layout.width = element.el.offsetWidth;
-			layout.height = element.el.offsetHeight;
+			const width = element.el.offsetWidth;
+			const height = element.el.offsetHeight;
 			element.measured = true;
 			measured++;
+			if (width === layout.width && height === layout.height) continue;
+			layout.width = width;
+			layout.height = height;
+			changed++;
 		}
-		return measured;
+		return { measured, changed };
 	}
 
 	/** Point the camera at whatever this paint owes it. */
@@ -2389,7 +2403,7 @@ export class MindmapView extends TextFileView implements MapController {
 			// A card that has only ever been off screen is on the map at the size
 			// some earlier paint measured for it. The file is not a frame that the
 			// next pan corrects, so it is measured properly first.
-			if (this.measureUnmeasured() > 0 && this.paintRoot) {
+			if (this.measureUnmeasured().changed > 0 && this.paintRoot) {
 				this.layOut(this.paintRoot, "export");
 			}
 			this.drawEdges(null);
