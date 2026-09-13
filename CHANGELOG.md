@@ -11,6 +11,12 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [Unreleased]
+
+- 新增方案 B 节点注释：`: ` 行附在标题下方，保留手动换行和 `:` 空行，长行自动折行，普通正文卡片保持不变。<br>Add scheme B node annotations: colon-prefixed lines appear beneath titles with hard breaks, blank paragraphs and automatic wrapping; ordinary body cards remain available.
+- 双击注释或通过节点菜单新增、编辑注释；独立多行编辑器自动写入语法前缀，支持撤销/重做及外部修改冲突检查。<br>Double-click annotations or use the node menu to add and edit them; the multiline editor writes syntax prefixes, supports undo/redo and detects external annotation changes.
+- 新增 Inline annotations 开关，可恢复原有正文显示；补充解析、缩进、移动、回写回归测试和演示笔记。<br>Add an Inline annotations toggle to restore legacy body rendering, regression coverage and a demo note.
+
 ## [1.0.10] - 2026-09-10
 
 ### 新增 / Added

@@ -53,6 +53,8 @@ export interface MindNode {
 	blockEnd: number;
 	/** Owned lines that are not part of any child node. Inclusive ranges. */
 	bodyRanges: Array<[number, number]>;
+	/** Indices of body ranges rendered under this node's title as annotations. */
+	annotationIndices: number[];
 
 	children: MindNode[];
 	parent: MindNode | null;
@@ -70,6 +72,8 @@ export interface ParsedDoc {
 }
 
 export interface ParseOptions {
+	/** Render colon-prefixed body lines as annotations attached to their owner. */
+	annotations: boolean;
 	/** Shown on the root card when the root is virtual. */
 	title: string;
 	source: NodeSource;
@@ -86,6 +90,7 @@ export interface ParseOptions {
 }
 
 export const DEFAULT_PARSE_OPTIONS: ParseOptions = {
+	annotations: true,
 	title: "Untitled",
 	source: "headings-and-lists",
 	rootPolicy: "auto",

@@ -134,6 +134,8 @@ export function renderInline(el: HTMLElement, text: string): boolean {
 }
 
 export interface NodeElementOptions {
+	/** Null means no annotation; an empty string is an explicit blank block. */
+	annotation: string | null;
 	maxWidth: number;
 	branchColors: boolean;
 	/** Render the text verbatim: code blocks and tables must not be marked up. */
@@ -202,6 +204,17 @@ export function buildNodeElement(
 		text.setText(node.text);
 	} else {
 		hasMath = renderInline(text, node.text);
+	}
+
+	if (opts.annotation !== null) {
+		el.addClass("has-annotation");
+		const annotation = el.createDiv({ cls: "mm-text mm-annotation" });
+		annotation.setAttribute("aria-label", "Annotation (double-click to edit)");
+		if (opts.annotation.trim() !== "") {
+			hasMath = renderInline(annotation, opts.annotation) || hasMath;
+		} else {
+			annotation.setText(opts.annotation || "\u00a0");
+		}
 	}
 
 	// Inside the card, not beside it. `canPan` already lets a pointerdown on
