@@ -43,6 +43,17 @@ export class Canvas {
 	private last = { x: 0, y: 0 };
 	private pinchDistance = 0;
 	private viewFrame = 0;
+	/**
+	 * Where the viewport sits on screen, kept for the length of one gesture.
+	 *
+	 * A wheel event arrives with the previous event's transform already written,
+	 * so asking the element for its rect there is a forced reflow per notch. The
+	 * viewport itself does not move while the camera does -- only the content
+	 * inside it does -- so the rect is read once and dropped again as soon as
+	 * anything could have moved it: the gesture ending, the camera settling, or
+	 * the view telling us the pane was resized.
+	 */
+	private rect: { left: number; top: number; width: number; height: number } | null = null;
 	private readonly cleanups: Array<() => void> = [];
 	/**
 	 * `will-change: transform` on `.mm-content`, raised while the camera moves
@@ -54,7 +65,12 @@ export class Canvas {
 	 * before the constructor body, which is where the element is made.
 	 */
 	private readonly moving = new MotionFlag(
-		(moving) => this.content.toggleClass("mm-moving", moving),
+		(moving) => {
+			this.content.toggleClass("mm-moving", moving);
+			// Camera at rest is the end of a gesture, wheel included: whatever the
+			// next one reads has to be read again.
+			if (!moving) this.rect = null;
+		},
 		SETTLE_MS,
 		window,
 	);
@@ -112,10 +128,10 @@ export class Canvas {
 			if (!middleClick && !this.opts.canPan(target)) return;
 
 			this.panning = true;
-			// Promote the layer before the drag rather than on its first frame.
-			// Nothing depends on this: the debounce in `apply` is what guarantees
-			// the class comes off again, whether or not a gesture ever moves.
-			this.moving.touch();
+			// Deliberately not promoting the layer here: a press and hold that never
+			// pans would raise the flag, let it settle, and raise it again on the
+			// first frame that does move -- two re-rasters of the whole map for a
+			// gesture that had not started. The first `apply()` promotes.
 			this.last = { x: ev.clientX, y: ev.clientY };
 			this.viewport.addClass("is-panning");
 			this.viewport.setPointerCapture(ev.pointerId);
@@ -143,6 +159,7 @@ export class Canvas {
 
 		const release = (ev: PointerEvent): void => {
 			this.pointers.delete(ev.pointerId);
+			this.rect = null;
 			if (this.pointers.size < 2) this.pinchDistance = 0;
 			if (this.panning && this.pointers.size === 0) {
 				this.panning = false;
@@ -169,8 +186,27 @@ export class Canvas {
 		return { x: sum.x / list.length, y: sum.y / list.length };
 	}
 
+	/** The viewport's box on screen, measured at most once per gesture. */
+	private viewportRect(): { left: number; top: number; width: number; height: number } {
+		if (this.rect === null) {
+			const box = this.viewport.getBoundingClientRect();
+			this.rect = { left: box.left, top: box.top, width: box.width, height: box.height };
+		}
+		return this.rect;
+	}
+
+	/**
+	 * Forget the cached box.
+	 *
+	 * For the one thing that moves the viewport without touching the camera:
+	 * `MindmapView.onResize`, which is also the one path that culls by hand.
+	 */
+	invalidateRect(): void {
+		this.rect = null;
+	}
+
 	zoomAt(clientX: number, clientY: number, factor: number): void {
-		const rect = this.viewport.getBoundingClientRect();
+		const rect = this.viewportRect();
 		const px = clientX - rect.left;
 		const py = clientY - rect.top;
 		const next = clamp(this.scale * factor, MIN_SCALE, MAX_SCALE);
@@ -182,7 +218,7 @@ export class Canvas {
 	}
 
 	zoomBy(factor: number): void {
-		const rect = this.viewport.getBoundingClientRect();
+		const rect = this.viewportRect();
 		this.zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
 	}
 
@@ -220,7 +256,7 @@ export class Canvas {
 
 	/** Scale and centre so the whole map is visible. */
 	fit(width: number, height: number): void {
-		const rect = this.viewport.getBoundingClientRect();
+		const rect = this.viewportRect();
 		if (rect.width === 0 || rect.height === 0 || width === 0 || height === 0) return;
 		const scale = clamp(
 			Math.min(rect.width / width, rect.height / height, 1),
@@ -235,7 +271,7 @@ export class Canvas {
 
 	/** Put a point of the content at the centre of the viewport. */
 	centreOn(x: number, y: number): void {
-		const rect = this.viewport.getBoundingClientRect();
+		const rect = this.viewportRect();
 		if (rect.width === 0) return;
 		this.tx = rect.width / 2 - x * this.scale;
 		this.ty = rect.height / 2 - y * this.scale;
@@ -257,7 +293,7 @@ export class Canvas {
 
 	/** Pan the smallest amount that brings a content rect fully into view. */
 	reveal(x: number, y: number, width: number, height: number, margin = 40): void {
-		const rect = this.viewport.getBoundingClientRect();
+		const rect = this.viewportRect();
 		if (rect.width === 0) return;
 		const left = x * this.scale + this.tx;
 		const top = y * this.scale + this.ty;
@@ -278,6 +314,7 @@ export class Canvas {
 		this.viewFrame = 0;
 		// Nothing may be left to fire at an element on its way out of the document.
 		this.moving.stop();
+		this.rect = null;
 		for (const off of this.cleanups) off();
 		this.cleanups.length = 0;
 		this.pointers.clear();

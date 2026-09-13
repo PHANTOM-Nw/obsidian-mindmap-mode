@@ -425,7 +425,9 @@ export class MindmapView extends TextFileView implements MapController {
 		}
 		// Nothing moved the camera, but the window it looks through changed
 		// shape, so what is on screen changed with it. This is the one way the
-		// view box moves without going through `Canvas.apply`.
+		// view box moves without going through `Canvas.apply`, and the one thing
+		// that moves the viewport itself, which is what the cached rect is for.
+		this.canvas.invalidateRect();
 		this.cullToView();
 	}
 
