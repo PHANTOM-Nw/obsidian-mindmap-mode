@@ -674,9 +674,11 @@
 
 /* --- toolbar ------------------------------------------------------------- */
 
-/* One panel, stacked: the export row on top of the camera row, both pushed to
-   the right edge so the shorter row lines up under the longer one's tail. */
-.mm-toolbar {
+/* Two panels in the corner, not one: the exports are a block of their own
+   above the camera and the map. The column is what carries the corner
+   position, so the camera panel keeps the bottom edge the pointer already
+   knows and the export panel stacks over it, both flush to the right edge. */
+.mm-toolbars {
 	position: absolute;
 	right: 12px;
 	bottom: 12px;
@@ -684,17 +686,18 @@
 	display: flex;
 	flex-direction: column;
 	align-items: flex-end;
+	gap: 8px;
+}
+
+/* The panel itself -- one rule, worn by both. */
+.mm-toolbar {
+	display: flex;
 	gap: 2px;
 	padding: 3px;
 	border-radius: 8px;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
-}
-
-.mm-toolbar-row {
-	display: flex;
-	gap: 2px;
 }
 
 .mm-tool {
