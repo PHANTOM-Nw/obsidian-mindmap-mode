@@ -16,8 +16,12 @@
  *     the camera happens to be over.
  *
  * The caller re-culls afterwards. Nothing else is read from the app, and
- * nothing here imports Obsidian.
+ * nothing here imports Obsidian -- the DOM helpers it uses (`createDiv`,
+ * `createSpan`, `createSvg`, `setCssStyles`, `instanceOf`) are the ones
+ * Obsidian puts on the globals and the DOM prototypes.
  */
+
+import { stripIllegalXml } from "./xmlText.ts";
 
 /** Blank margin around the map, in layout pixels. */
 export const EXPORT_PADDING = 32;
@@ -213,7 +217,7 @@ const EXTRA: Record<string, string[]> = {
  * look wrong -- it rewraps its text, which moves everything below it.
  */
 function reportsBorderBox(): boolean {
-	const probe = document.createElement("div");
+	const probe = createDiv();
 	probe.setAttribute(
 		"style",
 		"position:absolute;left:-9999px;top:0;visibility:hidden;" +
@@ -252,7 +256,7 @@ function sizeValue(
 }
 
 function styleOf(el: Element): CSSStyleDeclaration | null {
-	return el instanceof HTMLElement || el instanceof SVGElement ? el.style : null;
+	return el.instanceOf(HTMLElement) || el.instanceOf(SVGElement) ? el.style : null;
 }
 
 function copyStyle(
@@ -287,7 +291,7 @@ function dropAttributes(clone: Element): void {
 		}
 		// A `data-href` is note text, and note text can hold characters XML has
 		// no way to spell.
-		const cleaned = attribute.value.replace(ILLEGAL_XML, "");
+		const cleaned = stripIllegalXml(attribute.value);
 		if (cleaned !== attribute.value) clone.setAttribute(attribute.name, cleaned);
 	}
 	// An `<a>` is the one element in the fragment a click could still follow.
@@ -346,7 +350,7 @@ function addPseudo(
 		const content = style.getPropertyValue("content");
 		if (content === "" || content === "none" || content === "normal") continue;
 
-		const span = document.createElement("span");
+		const span = createSpan();
 		copyStyle(span, style, computed, borderBox, PSEUDO_EXTRA);
 		const text = pseudoText(content);
 		if (text !== "") span.textContent = text;
@@ -355,21 +359,11 @@ function addPseudo(
 	}
 }
 
-/**
- * Characters XML 1.0 has no way to spell.
- *
- * A note can hold any of them, and one reaching `XMLSerializer` produces a
- * document the browser then refuses to parse -- which is the SVG and the PNG
- * failing over a character nobody can see. Tab, newline and carriage return are
- * legal and are left alone.
- */
-const ILLEGAL_XML = /[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g;
-
 function scrubText(root: Element): void {
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 	for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
 		const text = node.nodeValue;
-		if (text !== null) node.nodeValue = text.replace(ILLEGAL_XML, "");
+		if (text !== null) node.nodeValue = stripIllegalXml(text);
 	}
 }
 
@@ -455,7 +449,7 @@ function collectDefs(clone: Element): SVGSVGElement | null {
 	push(clone);
 	if (pending.length === 0) return null;
 
-	const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+	const defs = createSvg("defs");
 	while (pending.length > 0) {
 		const id = pending.shift() as string;
 		const source = document.getElementById(id);
@@ -466,10 +460,15 @@ function collectDefs(clone: Element): SVGSVGElement | null {
 	}
 	if (defs.childElementCount === 0) return null;
 
-	const holder = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	const holder = createSvg("svg");
 	holder.setAttribute("width", "0");
 	holder.setAttribute("height", "0");
-	holder.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
+	holder.setCssStyles({
+		position: "absolute",
+		width: "0",
+		height: "0",
+		overflow: "hidden",
+	});
 	holder.appendChild(defs);
 	return holder;
 }
@@ -496,14 +495,16 @@ export function snapshotMap(opts: SnapshotOptions): Snapshot {
 
 		// After the copy, so the camera's transform and `.mm-content`'s own
 		// placement do not come through it.
-		clone.style.setProperty("position", "absolute");
-		clone.style.setProperty("left", `${EXPORT_PADDING}px`);
-		clone.style.setProperty("top", `${EXPORT_PADDING}px`);
-		clone.style.setProperty("transform", "none");
-		clone.style.setProperty("width", `${opts.width}px`);
-		clone.style.setProperty("height", `${opts.height}px`);
+		clone.setCssStyles({
+			position: "absolute",
+			left: `${EXPORT_PADDING}px`,
+			top: `${EXPORT_PADDING}px`,
+			transform: "none",
+			width: `${opts.width}px`,
+			height: `${opts.height}px`,
+		});
 
-		const wrapper = document.createElement("div");
+		const wrapper = createDiv();
 		wrapper.className = "mm-export";
 		wrapper.setAttribute(
 			"style",

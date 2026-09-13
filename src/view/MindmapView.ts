@@ -433,10 +433,15 @@ export class MindmapView extends TextFileView implements MapController {
 		// this scope answers wherever the focus is -- including the find bar's
 		// own input. Escape and the named keys are not characters, so they are
 		// left to fire.
+		//
+		// `KeymapEventListener` answers `false | any`, and only the `false` is
+		// load-bearing -- every other value hands the key on -- so what `run`
+		// said comes back as that one distinction rather than as an untyped
+		// value passed straight through.
 		const guarded =
 			modifiers.length === 0 && combo.key.length === 1
-				? (evt: KeyboardEvent, ctx: KeymapContext): boolean | void =>
-						inTextField(evt.target) ? true : run(evt, ctx)
+				? (evt: KeyboardEvent, ctx: KeymapContext): boolean =>
+						inTextField(evt.target) ? true : run(evt, ctx) !== false
 				: run;
 
 		// Obsidian matches a registered key against an interpreted "virtual key",

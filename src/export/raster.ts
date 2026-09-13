@@ -39,7 +39,7 @@ export async function rasterize(
 	height: number,
 ): Promise<RasterResult> {
 	const scale = Math.min(PNG_SCALE, MAX_CANVAS_PX / width, MAX_CANVAS_PX / height);
-	const canvas = document.createElement("canvas");
+	const canvas = createEl("canvas");
 	canvas.width = Math.max(1, Math.floor(width * scale));
 	canvas.height = Math.max(1, Math.floor(height * scale));
 
