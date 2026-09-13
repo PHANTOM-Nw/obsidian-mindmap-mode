@@ -11,6 +11,14 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.1.0-beta.2] - 2026-09-14
+
+实验性预发布，接 1.1.0-beta.1；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release following 1.1.0-beta.1; not a stable version until it lands on main.
+
+### 修复 / Fixed
+
+- 面板尺寸变化不再在 Obsidian 的尺寸观察回调里重排地图，而是推迟到下一帧处理：开发者控制台不会再被 "ResizeObserver loop completed with undelivered notifications" 刷屏，大图展开多个分支时也不再持续空转。<br>A pane resize is now recorded and acted on next frame instead of re-laying the map out inside Obsidian's resize observer, so the developer console no longer floods with "ResizeObserver loop completed with undelivered notifications" and a large, unfolded map stops burning frames on it.
+
 ## [1.1.0-beta.1] - 2026-09-14
 
 实验性预发布，用于测试性能修复与导出功能；不会合并进 main 之前请勿当作正式版本安装。<br>An experimental pre-release for testing the performance fixes and the export feature; not a stable version until it lands on main.
