@@ -146,6 +146,8 @@ Turn **Show note content** off in the settings to keep them off the map.
 Four commands write the map out as a file of its own — **Export mind map as
 Canvas**, **as SVG**, **as PNG** and **as HTML**. They are in the command
 palette while a map is the tab in front, and in the tab's *more options* menu.
+The same four are also the top row of the toolbar in the map's bottom-right
+corner.
 
 What you see is what you export. The map is written out with the fold state it
 is in, the layout it is in (balanced or one-sided), the branch colours if they
