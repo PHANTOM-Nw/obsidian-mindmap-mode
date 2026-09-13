@@ -2,6 +2,7 @@ import { Notice, Plugin, TFile, TFolder, debounce, setIcon } from "obsidian";
 import type { ViewState, WorkspaceLeaf } from "obsidian";
 
 import { MINDMAP_VIEW_TYPE, MindmapView } from "./view/MindmapView.ts";
+import { EXPORT_COMMANDS } from "./export/run.ts";
 import { DEFAULT_SETTINGS, MindmapSettingTab } from "./settings.ts";
 import type { MindmapSettings } from "./settings.ts";
 import {
@@ -113,6 +114,23 @@ export default class MindmapPlugin extends Plugin {
 					const view = this.app.workspace.getActiveViewOfType(MindmapView);
 					if (!view?.canMoveSelection(direction)) return false;
 					if (!checking) view.moveSelection(direction);
+					return true;
+				},
+			});
+		}
+
+		// Gated on the map being the view in front, like the other map commands:
+		// there is nothing to export anywhere else. A map that has not been
+		// painted yet still offers them and says so when asked, rather than
+		// having the entries appear and disappear as a note is opened.
+		for (const entry of EXPORT_COMMANDS) {
+			this.addCommand({
+				id: entry.id,
+				name: entry.name,
+				checkCallback: (checking) => {
+					const view = this.app.workspace.getActiveViewOfType(MindmapView);
+					if (!view) return false;
+					if (!checking) view.exportAs(entry.format);
 					return true;
 				},
 			});

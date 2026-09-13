@@ -141,6 +141,42 @@ note, and the map is only showing them.
 
 Turn **Show note content** off in the settings to keep them off the map.
 
+## Export
+
+Four commands write the map out as a file of its own — **Export mind map as
+Canvas**, **as SVG**, **as PNG** and **as HTML**. They are in the command
+palette while a map is the tab in front, and in the tab's *more options* menu.
+
+What you see is what you export. The map is written out with the fold state it
+is in, the layout it is in (balanced or one-sided), the branch colours if they
+are on, and the colours of the theme you are running — a folded branch is not in
+the file, and neither are the selection ring, the find highlights or the hover
+buttons.
+
+The file lands beside the note, with the note's name and a new extension. Nothing
+is ever overwritten: an export onto a name that is taken becomes `Note 1.svg`,
+`Note 2.svg` and so on, the way a duplicate is named anywhere else in Obsidian.
+
+- **Canvas** is the editable one. Every card becomes a text node holding its raw
+  markdown, so links, formulas and formatting keep working, and note-content
+  cards carry the whole block rather than the preview the map shows. Connectors
+  become canvas edges, leaving each card on the side its branch grows from. The
+  new `.canvas` opens in a new tab.
+- **SVG** is the map as vector art: it scales to any size, and text stays text,
+  so it can still be selected and searched. It is not a file to restyle, though
+  — every style the map was drawn with is written into it inline, which is what
+  lets it stand on its own.
+- **PNG** is a bitmap at twice the map's own size, or as close to that as fits
+  inside the 16384-pixel limit a canvas has — the notice says so when a map was
+  too big for the full scale.
+- **HTML** is a single static page, no scripts, that opens in any browser.
+
+The three picture formats carry every style inline, so the file stands on its
+own — with one consequence worth knowing: nothing it would have to fetch comes
+with it. An image referenced from a note's content is not drawn, and the theme's
+web fonts are not embedded, so text falls back to fonts the machine opening the
+file already has.
+
 ## Install
 
 Not in the community plugin browser yet, so install manually:

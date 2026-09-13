@@ -11,6 +11,14 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [Unreleased]
+
+### 新增 / Added
+
+- 导图现在可以导出成文件了，四条命令：**Export mind map as Canvas**、**as SVG**、**as PNG**、**as HTML**。导图在前台时命令面板里就能找到，标签页的"更多选项"菜单里也单列了一组。导出的就是你眼前这一张 —— 当前的折叠状态、当前的布局、开着的分支配色、正在用的主题配色；折叠起来的分支不在文件里，选中框、查找高亮和悬停按钮也不会被一起带走。<br>The map can now be exported as a file of its own, by four commands: **Export mind map as Canvas**, **as SVG**, **as PNG** and **as HTML**. They are in the command palette while a map is the tab in front, and in a section of the tab's *more options* menu. What is written out is the map you are looking at — the fold state it is in, the layout it is in, the branch colours if they are on, and the colours of the theme you are running; a folded branch is not in the file, and neither are the selection ring, the find highlights or the hover buttons.
+- 文件就落在笔记旁边，同名换后缀，绝不覆盖已有文件 —— 名字被占用时依次变成 `笔记 1.svg`、`笔记 2.svg`，和 Obsidian 自己处理重名的方式一致。Canvas 导出完会在新标签页里打开，其余三种会用通知告诉你文件写到了哪里。<br>The file lands beside the note, same name, new extension, and never on top of something already there — a taken name becomes `Note 1.svg`, `Note 2.svg`, the way a duplicate is named anywhere else in Obsidian. A Canvas export opens in a new tab; the other three say in a notice where the file was written.
+- Canvas 导出是可以继续编辑的那一种：每张卡片是一个文本节点，里面放的是原始 Markdown，所以链接、公式和格式都还活着；内容卡片写入整块原文而不是图上那段预览；连线变成 canvas 的边，从分支生长的那一侧出发。SVG 里文字仍是文字，PNG 按两倍尺寸渲染（超出画布 16384 像素上限时会缩小并在通知里说明），HTML 是一个不含脚本的静态页面。<br>The Canvas export is the editable one: every card is a text node holding its raw markdown, so links, formulas and formatting keep working, note-content cards carry the whole block rather than the preview, and connectors become canvas edges leaving each card on the side its branch grows from. In the SVG, text stays text; the PNG is rendered at twice the map's size, scaled down with a word in the notice when that would pass the 16384-pixel canvas limit; the HTML is one static page with no scripts.
+
 ## [1.0.10] - 2026-09-10
 
 ### 新增 / Added

@@ -39,6 +39,11 @@ import type { SearchQuery } from "../model/search.ts";
 
 import { createLayoutNode, layoutTree } from "../layout/tidyTree.ts";
 import type { LayoutNode, LayoutResult } from "../layout/tidyTree.ts";
+import { buildCanvas, randomId, serializeCanvas } from "../export/canvasFile.ts";
+import { snapshotMap } from "../export/snapshot.ts";
+import type { Snapshot } from "../export/snapshot.ts";
+import { EXPORT_COMMANDS, runExport } from "../export/run.ts";
+import type { ExportFormat } from "../export/run.ts";
 import { Canvas } from "./canvas.ts";
 import { covers, overlaps } from "./culling.ts";
 import type { ViewBox } from "./culling.ts";
@@ -438,6 +443,19 @@ export class MindmapView extends TextFileView implements MapController {
 				.setIcon("maximize")
 				.onClick(() => this.fit()),
 		);
+
+		// One named section rather than four loose items: Obsidian sorts a pane
+		// menu by section, so a separator added by hand can end up somewhere
+		// other than in front of the group it was meant to open.
+		for (const entry of EXPORT_COMMANDS) {
+			menu.addItem((item) =>
+				item
+					.setSection("mindmap-export")
+					.setTitle(entry.menu)
+					.setIcon(entry.icon)
+					.onClick(() => this.exportAs(entry.format)),
+			);
+		}
 	}
 
 	/** Called by the plugin when settings change. */
@@ -1946,6 +1964,98 @@ export class MindmapView extends TextFileView implements MapController {
 		if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
 		this.redoStack = [];
 		this.commit(text, -1, false);
+	}
+
+	// --- export ---------------------------------------------------------------
+
+	/**
+	 * Write the map out beside the note.
+	 *
+	 * What is exported is what is shown: the fold state as it stands, the
+	 * layout mode in force, the branch colours if they are on, and the colours
+	 * of the theme that is running. Nothing is re-derived from the note.
+	 */
+	exportAs(format: ExportFormat): void {
+		void runExport(this.app, this.file, format, {
+			canvasFile: () => this.buildCanvasFile(),
+			snapshot: () => this.buildSnapshot(),
+		});
+	}
+
+	/** True once there is a measured map on screen to export. */
+	private hasMap(): boolean {
+		return this.layoutNodes.length > 0 && this.mapWidth > 0 && !this.paintedEmpty;
+	}
+
+	/**
+	 * The ten branch colours, resolved through the theme.
+	 *
+	 * `--mm-b0`…`--mm-b9` are declared on the map's own container, so a theme or
+	 * a snippet that overrides one is what the export picks up. Null when branch
+	 * colours are switched off, which is what leaves every card its default.
+	 */
+	private branchPalette(): string[] | null {
+		if (!this.plugin.settings.branchColors) return null;
+		const style = getComputedStyle(this.contentEl);
+		const colors: string[] = [];
+		for (let i = 0; i < 10; i++) colors.push(style.getPropertyValue(`--mm-b${i}`).trim());
+		return colors;
+	}
+
+	private buildCanvasFile(): string | null {
+		if (!this.hasMap()) return null;
+		const parsed = this.parsed;
+		const palette = this.branchPalette();
+		return serializeCanvas(
+			buildCanvas(
+				{ nodes: this.layoutNodes },
+				{
+					title: this.file?.basename ?? "Untitled",
+					branchColor: (branch) =>
+						palette === null || branch < 0 ? null : palette[branch % palette.length],
+					nextId: randomId,
+					// A body card shows a preview; the file it goes into holds the
+					// block whole.
+					fullText: (item) =>
+						parsed && item.node.kind === "body"
+							? bodyRangeText(parsed, [item.node.lineStart, item.node.blockEnd])
+							: null,
+				},
+			),
+		);
+	}
+
+	/**
+	 * The map, read out of the live document.
+	 *
+	 * Two things have to be whole before it is read, and both are undone by the
+	 * cull that follows: a culled card is out of the document and has neither
+	 * size nor style, and the connector layer holds only the region the camera
+	 * is over.
+	 */
+	private buildSnapshot(): Snapshot | null {
+		if (!this.hasMap()) return null;
+		// Inside the try, not in front of it: whatever these two throw, the cull
+		// in the `finally` is what puts the map back the way the camera left it.
+		try {
+			this.showAllCards();
+			this.drawEdges(null);
+			return snapshotMap({
+				content: this.canvas.content,
+				width: this.mapWidth,
+				height: this.mapHeight,
+				background: this.mapBackground(),
+			});
+		} finally {
+			this.cullToView(true);
+		}
+	}
+
+	private mapBackground(): string {
+		const color = getComputedStyle(this.canvas.viewport).backgroundColor;
+		return color === "" || color === "transparent" || color === "rgba(0, 0, 0, 0)"
+			? "#ffffff"
+			: color;
 	}
 
 	// --- file lifecycle -------------------------------------------------------
