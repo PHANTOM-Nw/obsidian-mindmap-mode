@@ -11,6 +11,18 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.1.0-beta] - 2026-09-14
+
+实验性预发布，在 1.1.0 之上验证两项改动；正式版仍是 1.1.0。<br>An experimental pre-release on top of 1.1.0 to test two changes; the stable version remains 1.1.0.
+
+### 新增 / Added
+
+- 导图右下角工具栏新增一行导出按钮：Canvas、SVG、PNG、HTML，与命令面板和标签页菜单里的四条导出命令完全一致。<br>Added an export row to the map's bottom-right toolbar — Canvas, SVG, PNG and HTML, the same four exports as the command palette and the tab menu.
+
+### 修复 / Fixed
+
+- 修复大图在每次拖动或缩放开始与结束时的轻微卡顿：相机移动标记上挂的样式规则会让全图所有卡片重算样式，515 个节点的导图上每次要 19 毫秒。<br>Fixed a hitch at the start and end of every pan and zoom on a large map: a style rule keyed on the camera-moving flag re-styled every card on the map, costing a 515-node map 19 ms each time.
+
 ## [1.1.0] - 2026-09-14
 
 ### 新增 / Added
