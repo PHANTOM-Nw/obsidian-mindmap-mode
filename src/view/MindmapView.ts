@@ -171,7 +171,8 @@ export type PaintReason =
 	| "resize"
 	| "setViewData"
 	| "math-remeasure"
-	| "cull";
+	| "cull"
+	| "export";
 
 /**
  * What a body card shows. The full text stays one click away on the card's own
@@ -1220,6 +1221,32 @@ export class MindmapView extends TextFileView implements MapController {
 		reason: PaintReason,
 		frame: boolean,
 	): void {
+		const result = this.layOut(rootLayout, reason);
+
+		if (frame) {
+			// Read here, past the `paintedEmpty` return and before the framing
+			// branches: a map painted while hidden keeps its jump until `onResize`
+			// repaints it, and a jump that survives the read is spent either way.
+			const reveal = this.pendingReveal;
+			this.pendingReveal = null;
+			this.frameMap(result, anchor, reveal);
+		}
+
+		// Last, and unconditionally: the camera has finished moving, so this is
+		// the first moment the map can tell which cards are worth keeping. It
+		// draws the connectors too, which is why it runs even when nothing has
+		// changed hands -- a fresh paint has an empty layer to fill.
+		this.cullToView(true);
+	}
+
+	/**
+	 * Run the layout over the measured cards and write it to the DOM.
+	 *
+	 * Everything a repositioning needs and nothing a repaint does, which is what
+	 * lets the export re-place a map it has just shown in full without the cull
+	 * that would take half of it away again.
+	 */
+	private layOut(rootLayout: LayoutNode, reason: PaintReason): LayoutResult {
 		const s = this.plugin.settings;
 		const laidOut = this.perf.now();
 		const result = layoutTree(rootLayout, {
@@ -1247,21 +1274,7 @@ export class MindmapView extends TextFileView implements MapController {
 			(layout) => this.elements.get(layout.node.id) ?? null,
 		);
 		this.perf.span("paint-transform", written, { reason, nodes: result.nodes.length });
-
-		if (frame) {
-			// Read here, past the `paintedEmpty` return and before the framing
-			// branches: a map painted while hidden keeps its jump until `onResize`
-			// repaints it, and a jump that survives the read is spent either way.
-			const reveal = this.pendingReveal;
-			this.pendingReveal = null;
-			this.frameMap(result, anchor, reveal);
-		}
-
-		// Last, and unconditionally: the camera has finished moving, so this is
-		// the first moment the map can tell which cards are worth keeping. It
-		// draws the connectors too, which is why it runs even when nothing has
-		// changed hands -- a fresh paint has an empty layer to fill.
-		this.cullToView(true);
+		return result;
 	}
 
 	/**
@@ -1283,16 +1296,7 @@ export class MindmapView extends TextFileView implements MapController {
 		try {
 			for (let round = 0; round < REMEASURE_ROUNDS; round++) {
 				const started = this.perf.now();
-				let measured = 0;
-				for (let i = 0; i < this.layoutNodes.length; i++) {
-					const element = this.layoutElements[i];
-					if (!element || element.offscreen || element.measured) continue;
-					const layout = this.layoutNodes[i];
-					layout.width = element.el.offsetWidth;
-					layout.height = element.el.offsetHeight;
-					element.measured = true;
-					measured++;
-				}
+				const measured = this.measureUnmeasured();
 				if (measured === 0) return;
 				this.perf.span("cull-measure", started, { measured, round });
 				this.place(root, null, "cull", false);
@@ -1300,6 +1304,24 @@ export class MindmapView extends TextFileView implements MapController {
 		} finally {
 			this.remeasuring = false;
 		}
+	}
+
+	/**
+	 * Measure every card that is in the document without ever having been
+	 * measured there, and report how many there were.
+	 */
+	private measureUnmeasured(): number {
+		let measured = 0;
+		for (let i = 0; i < this.layoutNodes.length; i++) {
+			const element = this.layoutElements[i];
+			if (!element || element.offscreen || element.measured) continue;
+			const layout = this.layoutNodes[i];
+			layout.width = element.el.offsetWidth;
+			layout.height = element.el.offsetHeight;
+			element.measured = true;
+			measured++;
+		}
+		return measured;
 	}
 
 	/** Point the camera at whatever this paint owes it. */
@@ -2364,6 +2386,12 @@ export class MindmapView extends TextFileView implements MapController {
 		// in the `finally` is what puts the map back the way the camera left it.
 		try {
 			this.showAllCards();
+			// A card that has only ever been off screen is on the map at the size
+			// some earlier paint measured for it. The file is not a frame that the
+			// next pan corrects, so it is measured properly first.
+			if (this.measureUnmeasured() > 0 && this.paintRoot) {
+				this.layOut(this.paintRoot, "export");
+			}
 			this.drawEdges(null);
 			return snapshotMap({
 				content: this.canvas.content,
