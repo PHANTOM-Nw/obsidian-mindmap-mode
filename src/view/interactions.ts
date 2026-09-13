@@ -218,7 +218,7 @@ export function attachInteractions(controller: MapController): () => void {
 
 	const cancelDropFrame = (): void => {
 		if (dropFrame === 0) return;
-		cancelAnimationFrame(dropFrame);
+		window.cancelAnimationFrame(dropFrame);
 		dropFrame = 0;
 	};
 
@@ -295,7 +295,7 @@ export function attachInteractions(controller: MapController): () => void {
 
 		dropAt = { x: ev.clientX, y: ev.clientY };
 		if (dropFrame !== 0) return;
-		dropFrame = requestAnimationFrame(() => {
+		dropFrame = window.requestAnimationFrame(() => {
 			dropFrame = 0;
 			resolveDrop();
 		});
