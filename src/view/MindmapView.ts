@@ -152,6 +152,14 @@ const CULL_BUDGET = 150;
 const REMEASURE_ROUNDS = 3;
 
 /**
+ * Cards on screen at once past which the map stops animating its hovers.
+ *
+ * Past this, a pointer crossing the map costs more style recalculation than the
+ * transitions are worth; `mm-dense` in `styles.css` is what turns them off.
+ */
+const DENSE_NODE_COUNT = 300;
+
+/**
  * What asked for the work, carried into the timing log so a slow map can be
  * read as "typing is slow" rather than as a list of milliseconds.
  */
@@ -1067,6 +1075,8 @@ export class MindmapView extends TextFileView implements MapController {
 			reused++;
 		}
 		this.perf.span("paint-build", started, { reason, nodes: visible.length, reused });
+
+		this.contentEl.toggleClass("mm-dense", visible.length > DENSE_NODE_COUNT);
 
 		// Attached only now that every card exists: one mutation of the live
 		// tree per paint, and the measuring pass below is the first thing that

@@ -65,10 +65,27 @@
 	cursor: grabbing;
 }
 
-/* A node drag cannot give up hit-testing, but it can give up the animation:
-   the cards it sweeps over would otherwise each run a transition to nowhere. */
+/*
+ * Three states where the card transitions are given up, all for the same
+ * reason: something is sweeping the pointer across cards that have no business
+ * animating for it.
+ *
+ * A node drag cannot give up hit-testing the way a pan does, so the cards it
+ * passes over each run a transition to nowhere. A camera move slides every card
+ * past a standing pointer, flipping :hover on and off down the whole row. And a
+ * map dense enough to be slow is one where the transitions are the least of
+ * what a hover costs -- `mm-dense` is set at paint time, past the node count in
+ * `MindmapView`.
+ *
+ * Only the animation goes. The hover colours stay exactly as they are; they
+ * simply arrive at once.
+ */
 .mm-viewport.is-dragging-node .mm-card,
-.mm-viewport.is-dragging-node .mm-add {
+.mm-viewport.is-dragging-node .mm-add,
+.mm-content.mm-moving .mm-card,
+.mm-content.mm-moving .mm-add,
+.mindmap-mode.mm-dense .mm-card,
+.mindmap-mode.mm-dense .mm-add {
 	transition: none;
 }
 
