@@ -1,8 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { covers, edgeInView, overlaps, viewBoxOf } from "./culling.ts";
-import type { Box, ViewBox } from "./culling.ts";
+import {
+	clampedMargin,
+	covers,
+	edgeInView,
+	emptyPlan,
+	overlaps,
+	planCull,
+	viewBoxFrom,
+	viewBoxOf,
+} from "./culling.ts";
+import type { Box, CullScan, ViewBox } from "./culling.ts";
 
 /** A viewport 1000x600, camera at the origin, no zoom. */
 const plain = (margin = 0): ViewBox => {
@@ -119,4 +128,115 @@ test("the stroke pad keeps a connector that only its own width puts on screen", 
 	// 3px stroke drawn on it would not.
 	assert.equal(edgeInView(1002, 300, 1002, 400, 0, view), false);
 	assert.equal(edgeInView(1002, 300, 1002, 400, 4, view), true);
+});
+
+test("metrics and a margin give the same box as the numbers do", () => {
+	const metrics = { width: 1000, height: 600, tx: 200, ty: 100, scale: 0.5 };
+	assert.deepEqual(viewBoxFrom(metrics, 100), viewBoxOf(1000, 600, 200, 100, 0.5, 100));
+	assert.deepEqual(viewBoxFrom(metrics), viewBoxOf(1000, 600, 200, 100, 0.5));
+});
+
+test("a screen margin is left alone until the zoom makes it enormous", () => {
+	// 1600 screen pixels is 1600 content pixels at 1:1 and stays there.
+	assert.equal(clampedMargin(1600, 1, 6000), 1600);
+	// Half zoom: 3200 content pixels, still under the cap.
+	assert.equal(clampedMargin(1600, 0.5, 6000), 1600);
+	// A tenth: 16000 content pixels asked for, 6000 granted -- as a screen
+	// margin, which is what the view box takes.
+	assert.equal(clampedMargin(1600, 0.1, 6000), 600);
+	// A viewport with no size never divides by the scale anyway.
+	assert.equal(clampedMargin(1600, 0, 6000), 1600);
+});
+
+/** A scan over fixed boxes, with the offscreen state held in an array. */
+const scanOf = (
+	boxes: Box[],
+	offscreen: boolean[],
+	show: ViewBox | null,
+	hide: ViewBox | null,
+	budget = Infinity,
+	keep: (index: number) => boolean = () => false,
+): CullScan => ({
+	boxes,
+	offscreen: (i) => offscreen[i],
+	keep,
+	show,
+	hide,
+	budget,
+});
+
+test("a card is shown at the inner box and hidden only past the outer one", () => {
+	const show = plain();
+	const hide = plain(200);
+	const plan = emptyPlan();
+
+	// 1100 is past the viewport but inside the hysteresis band.
+	const boxes = [box(1100, 300)];
+	// Out of the document: the inner box does not reach it, so it stays out.
+	planCull(scanOf(boxes, [true], show, hide), plan);
+	assert.deepEqual(plan.show, []);
+	// In the document: the outer box still reaches it, so it stays in.
+	planCull(scanOf(boxes, [false], show, hide), plan);
+	assert.deepEqual(plan.hide, []);
+});
+
+test("the band is what a card crossing it costs: one flip, not one a frame", () => {
+	const plan = emptyPlan();
+	const boxes = [box(900, 300)];
+	// On screen, in the document, nothing to do.
+	planCull(scanOf(boxes, [false], plain(), plain(200)), plan);
+	assert.deepEqual([plan.show, plan.hide], [[], []]);
+	// Panned until it is past both boxes: now it goes.
+	const far = viewBoxOf(1000, 600, -1400, 0, 1, 0);
+	const farHide = viewBoxOf(1000, 600, -1400, 0, 1, 200);
+	planCull(scanOf(boxes, [false], far, farHide), plan);
+	assert.deepEqual(plan.hide, [0]);
+	// Panned back until it reaches the inner box: it comes straight back.
+	planCull(scanOf(boxes, [true], plain(), plain(200)), plan);
+	assert.deepEqual(plan.show, [0]);
+});
+
+test("a card that must stay is never planned out of the document", () => {
+	const plan = emptyPlan();
+	const boxes = [box(5000, 5000)];
+	planCull(scanOf(boxes, [false], plain(), plain(200), Infinity, () => true), plan);
+	assert.deepEqual(plan.hide, []);
+});
+
+test("a viewport with no size shows everything and hides nothing", () => {
+	const plan = emptyPlan();
+	const boxes = [box(10, 10), box(9000, 9000)];
+	planCull(scanOf(boxes, [true, true], null, null), plan);
+	assert.deepEqual(plan.show, [0, 1]);
+	planCull(scanOf(boxes, [false, false], null, null), plan);
+	assert.deepEqual(plan.hide, []);
+});
+
+test("the budget caps the flips and reports the rest as backlog", () => {
+	const plan = emptyPlan();
+	const boxes = [box(10, 10), box(10, 60), box(10, 110), box(10, 160)];
+	planCull(scanOf(boxes, [true, true, true, true], plain(), plain(200), 2), plan);
+	assert.deepEqual(plan.show, [0, 1]);
+	assert.equal(plan.backlog, 2);
+});
+
+test("the budget goes on the cards that come back before the ones that go", () => {
+	const plan = emptyPlan();
+	// One off-screen card in the document, one on-screen card out of it.
+	const boxes = [box(9000, 9000), box(10, 10)];
+	planCull(scanOf(boxes, [false, true], plain(), plain(200), 1), plan);
+	assert.deepEqual(plan.show, [1], "the visible one is what a viewer would miss");
+	assert.deepEqual(plan.hide, []);
+	assert.equal(plan.backlog, 1);
+});
+
+test("a plan is reusable: the last frame's indices never survive into this one", () => {
+	const plan = emptyPlan();
+	const boxes = [box(10, 10)];
+	planCull(scanOf(boxes, [true], plain(), plain(200)), plan);
+	assert.deepEqual(plan.show, [0]);
+	planCull(scanOf(boxes, [false], plain(), plain(200)), plan);
+	assert.deepEqual(plan.show, []);
+	assert.deepEqual(plan.hide, []);
+	assert.equal(plan.backlog, 0);
 });

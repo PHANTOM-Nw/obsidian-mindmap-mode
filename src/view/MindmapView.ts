@@ -45,8 +45,9 @@ import type { Snapshot } from "../export/snapshot.ts";
 import { EXPORT_COMMANDS, runExport } from "../export/run.ts";
 import type { ExportFormat } from "../export/run.ts";
 import { Canvas } from "./canvas.ts";
-import { covers, overlaps } from "./culling.ts";
-import type { ViewBox } from "./culling.ts";
+import { clampedMargin, covers, emptyPlan, planCull, viewBoxFrom } from "./culling.ts";
+import type { CullPlan, ViewBox } from "./culling.ts";
+import { Perf } from "./perf.ts";
 import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
@@ -106,6 +107,39 @@ const CULL_MARGIN = 400;
  * camera moves over it.
  */
 const EDGE_MARGIN = 1600;
+
+/**
+ * How much further than `CULL_MARGIN` a card has to travel before it is taken
+ * out again, in screen pixels.
+ *
+ * Show and hide on the same boundary makes a card sitting on it flip on every
+ * other frame of a slow pan -- a style recalc and a paint apiece, for a card
+ * nobody can see either way. The band is the whole fix: it comes back early and
+ * leaves late.
+ */
+const CULL_HYSTERESIS = 200;
+
+/**
+ * The furthest the connector layer is ever drawn past the viewport, in *content*
+ * pixels.
+ *
+ * `EDGE_MARGIN` is a screen distance, so zooming out multiplies it: at the
+ * smallest zoom it asks for sixteen thousand content pixels on every side, and
+ * the whole layer is rebuilt each time the camera leaves that region. The cap
+ * has to stay above `CULL_MARGIN` divided by the smallest zoom, or the drawn
+ * region stops containing the cards' own box and `covers` fails every frame.
+ */
+const EDGE_MAX_CONTENT = 6000;
+
+/**
+ * How many cards may have their `is-offscreen` class flipped in one frame.
+ *
+ * The scan is arithmetic and runs over the whole map; this caps only the part
+ * that touches the DOM, because a few hundred class flips in one frame is a
+ * style recalc long enough to drop it. Whatever is left over is carried to the
+ * next frame, which is why the continuation exists.
+ */
+const CULL_BUDGET = 150;
 
 /**
  * What a body card shows. The full text stays one click away on the card's own
@@ -175,6 +209,17 @@ export class MindmapView extends TextFileView implements MapController {
 	private parsed: ParsedDoc | null = null;
 	private layoutNodes: LayoutNode[] = [];
 	private elements = new Map<string, NodeElement>();
+	/**
+	 * The card for each entry of `layoutNodes`, at the same index.
+	 *
+	 * Filled once per paint so the scan behind every pan frame is an array read
+	 * rather than a string-keyed lookup per node.
+	 */
+	private layoutElements: Array<NodeElement | null> = [];
+	/** Reused between frames: a pan plans its culling without allocating. */
+	private readonly cullPlan: CullPlan = emptyPlan();
+	/** The continuation that works off a backlog the budget could not. */
+	private cullFrame = 0;
 	/** The laid-out size of the whole map, for redrawing the connector layer. */
 	private mapWidth = 0;
 	private mapHeight = 0;
@@ -241,10 +286,13 @@ export class MindmapView extends TextFileView implements MapController {
 	private needsFit = true;
 	private paintedEmpty = false;
 	private paintToken = 0;
+	/** Off unless the user asked for it, and one branch per call site when off. */
+	private readonly perf = new Perf();
 
 	constructor(leaf: WorkspaceLeaf, plugin: MindmapPlugin) {
 		super(leaf);
 		this.plugin = plugin;
+		this.perf.enabled = plugin.settings.debugTiming;
 
 		this.contentEl.addClass("mindmap-mode");
 		this.canvas = new Canvas(this.contentEl, {
@@ -377,7 +425,9 @@ export class MindmapView extends TextFileView implements MapController {
 	override clear(): void {
 		this.data = "";
 		this.parsed = null;
+		this.cancelCullFrame();
 		this.layoutNodes = [];
+		this.layoutElements = [];
 		this.elements.clear();
 		this.resetSearch();
 		this.searchQuery = { text: "", regex: false };
@@ -406,6 +456,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	override async onClose(): Promise<void> {
 		this.paintToken++;
+		this.cancelCullFrame();
 		// Closing the tab is the last chance to keep a search out of the record:
 		// what reaches disk has to be the fold shape the user chose.
 		if (this.restoreSearchFolds()) this.rememberState();
@@ -463,6 +514,7 @@ export class MindmapView extends TextFileView implements MapController {
 	/** Called by the plugin when settings change. */
 	refresh(): void {
 		this.shortcutBindings = null;
+		this.perf.enabled = this.plugin.settings.debugTiming;
 		if (this.scope) this.bindScope(this.scope);
 		this.canvas.setOptions({ wheel: this.plugin.settings.wheel });
 		this.render();
@@ -1033,6 +1085,9 @@ export class MindmapView extends TextFileView implements MapController {
 		this.mapWidth = result.width;
 		this.mapHeight = result.height;
 		this.layoutNodes = result.nodes;
+		this.layoutElements = result.nodes.map(
+			(layout) => this.elements.get(layout.node.id) ?? null,
+		);
 
 		this.applySelection();
 		this.applySearchState();
@@ -1092,35 +1147,97 @@ export class MindmapView extends TextFileView implements MapController {
 	 * proportional to a screenful rather than to the note.
 	 *
 	 * Cheap enough to run on every frame of a pan: the scan is arithmetic over
-	 * the layout the last paint produced, and only the handful of cards that
-	 * actually crossed the boundary touch the DOM. The connectors keep their own,
-	 * wider region and are left alone until the camera leaves it.
+	 * the layout the last paint produced, and only the cards that actually
+	 * crossed the boundary touch the DOM -- at most `CULL_BUDGET` of them, with
+	 * the rest carried to the next frame by the continuation at the end. The
+	 * connectors keep their own, wider region and are left alone until the camera
+	 * leaves it.
+	 *
+	 * `force` is the paint's own cull and the export's: no budget, no
+	 * continuation, and the connectors redrawn whether the camera moved or not.
 	 */
 	private cullToView(force = false): void {
-		const view = this.canvas.viewBox(CULL_MARGIN);
+		const started = this.perf.now();
+		this.cancelCullFrame();
 
-		for (const layout of this.layoutNodes) {
-			const element = this.elements.get(layout.node.id);
+		// One read of the viewport, two boxes: the cards' and the connectors'.
+		const metrics = this.canvas.metrics();
+		const show = viewBoxFrom(metrics, CULL_MARGIN);
+		const hide = viewBoxFrom(metrics, CULL_MARGIN + CULL_HYSTERESIS);
+
+		const nodes = this.layoutNodes;
+		const cards = this.layoutElements;
+		const editing = this.editingId;
+		const plan = this.cullPlan;
+		planCull(
+			{
+				boxes: nodes,
+				offscreen: (i) => cards[i]?.offscreen === true,
+				// A card with no element of its own cannot be flipped either way,
+				// and the one being edited holds the focus: taking it out of the
+				// document would drop the caret mid-word.
+				keep: (i) => cards[i] === null || nodes[i].node.id === editing,
+				show,
+				hide,
+				// A forced cull is the paint's own, and the export's: both need a
+				// map that is right now rather than right in a few frames.
+				budget: force ? Infinity : CULL_BUDGET,
+			},
+			plan,
+		);
+
+		for (const i of plan.show) {
+			const element = cards[i];
 			if (!element) continue;
-			// No view box means a viewport with no size -- a map in a hidden tab.
-			// Nothing is measurable there, so nothing is culled either.
-			const offscreen =
-				view !== null &&
-				layout.node.id !== this.editingId &&
-				!overlaps(layout, view);
-			if (offscreen === element.offscreen) continue;
-			element.offscreen = offscreen;
-			element.el.toggleClass("is-offscreen", offscreen);
+			element.offscreen = false;
+			element.el.removeClass("is-offscreen");
+		}
+		for (const i of plan.hide) {
+			const element = cards[i];
+			if (!element) continue;
+			element.offscreen = true;
+			element.el.addClass("is-offscreen");
 		}
 
-		if (!force && covers(this.edgeView, view)) return;
-		this.edgeView = this.canvas.viewBox(EDGE_MARGIN);
-		this.drawEdges(this.edgeView);
+		let paths = 0;
+		const redrew = force || !covers(this.edgeView, show);
+		if (redrew) {
+			this.edgeView = viewBoxFrom(
+				metrics,
+				clampedMargin(EDGE_MARGIN, metrics.scale, EDGE_MAX_CONTENT),
+			);
+			paths = this.drawEdges(this.edgeView);
+		}
+
+		if (plan.backlog > 0) {
+			this.cullFrame = window.requestAnimationFrame(() => {
+				this.cullFrame = 0;
+				this.cullToView();
+			});
+		}
+
+		this.perf.span("cull", started, {
+			total: nodes.length,
+			shown: plan.show.length,
+			hidden: plan.hide.length,
+			backlog: plan.backlog,
+			edgesRedrawn: redrew,
+			pathCount: paths,
+		});
 	}
 
-	private drawEdges(view: ViewBox | null): void {
-		if (!this.edgeLayer) return;
-		renderEdges(
+	/** Nothing may be left to fire at a map that has been repainted or closed. */
+	private cancelCullFrame(): void {
+		if (this.cullFrame === 0) return;
+		window.cancelAnimationFrame(this.cullFrame);
+		this.cullFrame = 0;
+	}
+
+	/** Returns how many connectors it drew. */
+	private drawEdges(view: ViewBox | null): number {
+		if (!this.edgeLayer) return 0;
+		const started = this.perf.now();
+		const paths = renderEdges(
 			this.edgeLayer,
 			this.layoutNodes,
 			this.mapWidth,
@@ -1128,6 +1245,8 @@ export class MindmapView extends TextFileView implements MapController {
 			this.plugin.settings.branchColors,
 			view,
 		);
+		this.perf.span("edges", started, { paths, whole: view === null });
+		return paths;
 	}
 
 	/**

@@ -28,6 +28,21 @@ export interface Box {
 }
 
 /**
+ * Everything about the camera a view box is derived from, read in one go.
+ *
+ * The size half of it costs a layout to read, so a frame that wants two boxes
+ * -- the cards' and the connectors' -- takes these once and derives both from
+ * them rather than asking the element twice.
+ */
+export interface ViewMetrics {
+	width: number;
+	height: number;
+	tx: number;
+	ty: number;
+	scale: number;
+}
+
+/**
  * The part of the content a viewport is showing, grown by `margin` *screen*
  * pixels on every side.
  *
@@ -51,6 +66,25 @@ export function viewBoxOf(
 		right: zeroed((width + margin - tx) / scale),
 		bottom: zeroed((height + margin - ty) / scale),
 	};
+}
+
+/** The same box, from metrics already in hand. */
+export function viewBoxFrom(metrics: ViewMetrics, margin = 0): ViewBox | null {
+	return viewBoxOf(metrics.width, metrics.height, metrics.tx, metrics.ty, metrics.scale, margin);
+}
+
+/**
+ * A screen margin, capped at a distance in *content* pixels.
+ *
+ * A margin in screen pixels grows without bound as the map is zoomed out: at
+ * the smallest zoom, the connector layer's own margin alone would be sixteen
+ * thousand content pixels on every side, and every path in it gets rebuilt each
+ * time the camera leaves the drawn region. The cap is what keeps that region
+ * proportional to the map rather than to the reciprocal of the zoom.
+ */
+export function clampedMargin(margin: number, scale: number, maxContent: number): number {
+	if (scale <= 0) return margin;
+	return Math.min(margin, maxContent * scale);
 }
 
 /**
@@ -90,6 +124,78 @@ export function covers(outer: ViewBox | null, inner: ViewBox | null): boolean {
 		outer.right >= inner.right &&
 		outer.bottom >= inner.bottom
 	);
+}
+
+/**
+ * What one frame of culling should flip, and what it had to leave.
+ *
+ * Index lists into the same array the scan was given, reused between frames so
+ * a pan allocates nothing.
+ */
+export interface CullPlan {
+	/** Cards to put back in the document. */
+	show: number[];
+	/** Cards to take out of it. */
+	hide: number[];
+	/** Flips the budget did not have room for. */
+	backlog: number;
+}
+
+export function emptyPlan(): CullPlan {
+	return { show: [], hide: [], backlog: 0 };
+}
+
+/** One frame's worth of the question "what belongs in the document?". */
+export interface CullScan {
+	boxes: readonly Box[];
+	/** Is the card at this index out of the document now? */
+	offscreen: (index: number) => boolean;
+	/** Cards that must stay in it whatever the geometry says. */
+	keep: (index: number) => boolean;
+	/** Cards inside this come back. A null box means "no viewport": show them all. */
+	show: ViewBox | null;
+	/** Cards outside this go, which is a wider box on purpose -- see below. */
+	hide: ViewBox | null;
+	/** How many cards may actually be flipped this frame. */
+	budget: number;
+}
+
+/**
+ * Decide which cards this frame flips.
+ *
+ * Two boxes rather than one, and that gap is the hysteresis: a card comes back
+ * as soon as it reaches the inner box and only leaves once it is past the outer
+ * one, so a card sitting on the boundary of a slow pan is flipped once instead
+ * of on every other frame.
+ *
+ * Shows are planned before hides, and within each pass the order is the layout
+ * order the array already has. A show is what the viewer would notice missing;
+ * a hide left for the next frame costs nothing but the paint it was going to
+ * save, so the budget is spent on the half that shows.
+ */
+export function planCull(scan: CullScan, plan: CullPlan): void {
+	plan.show.length = 0;
+	plan.hide.length = 0;
+	plan.backlog = 0;
+	const count = scan.boxes.length;
+
+	for (let i = 0; i < count; i++) {
+		if (!scan.offscreen(i)) continue;
+		if (scan.show !== null && !overlaps(scan.boxes[i], scan.show)) continue;
+		if (plan.show.length + plan.hide.length >= scan.budget) plan.backlog++;
+		else plan.show.push(i);
+	}
+
+	// No view box is a viewport with no size -- a map in a hidden tab. Nothing
+	// is measurable there, so nothing is culled either.
+	if (scan.hide === null || scan.show === null) return;
+
+	for (let i = 0; i < count; i++) {
+		if (scan.offscreen(i) || scan.keep(i)) continue;
+		if (overlaps(scan.boxes[i], scan.hide)) continue;
+		if (plan.show.length + plan.hide.length >= scan.budget) plan.backlog++;
+		else plan.hide.push(i);
+	}
 }
 
 /**

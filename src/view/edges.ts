@@ -32,6 +32,8 @@ function strokeWidth(depth: number): number {
  * control points share their x range with the two anchors and their y with one
  * or the other, so the anchors' bounding box contains the whole curve and a
  * cheap rectangle test is exact rather than approximate.
+ *
+ * Returns how many paths it drew, which is what a redraw costs.
  */
 export function renderEdges(
 	svg: SVGSVGElement,
@@ -40,7 +42,7 @@ export function renderEdges(
 	height: number,
 	branchColors: boolean,
 	view: ViewBox | null = null,
-): void {
+): number {
 	svg.replaceChildren();
 	svg.setAttribute("width", String(width));
 	svg.setAttribute("height", String(height));
@@ -49,6 +51,7 @@ export function renderEdges(
 	// Built off-tree and attached once: appending a few hundred paths straight
 	// into a live SVG invalidates the layer that many times over.
 	const frag = createFragment();
+	let drawn = 0;
 
 	for (const child of nodes) {
 		const parent = child.parent;
@@ -72,9 +75,11 @@ export function renderEdges(
 			path.dataset.branch = String(child.branch % 10);
 		}
 		frag.appendChild(path);
+		drawn++;
 	}
 
 	svg.appendChild(frag);
+	return drawn;
 }
 
 /** Detached: the caller attaches the finished layer along with the cards. */

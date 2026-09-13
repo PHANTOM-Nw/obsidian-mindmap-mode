@@ -1,5 +1,4 @@
-import { viewBoxOf } from "./culling.ts";
-import type { ViewBox } from "./culling.ts";
+import type { ViewMetrics } from "./culling.ts";
 import { MotionFlag, SETTLE_MS } from "./motion.ts";
 
 export interface CanvasOptions {
@@ -236,22 +235,21 @@ export class Canvas {
 	}
 
 	/**
-	 * What the viewport is showing, in content coordinates, grown by `margin`
-	 * screen pixels on every side.
+	 * Everything a view box is derived from, in one read.
 	 *
 	 * `clientWidth`/`clientHeight` rather than a rect: the viewport sits outside
-	 * the scaled content, so its box is already in screen pixels, and this is
-	 * read on every frame of a pan.
+	 * the scaled content, so its box is already in screen pixels. The size is the
+	 * half that costs a layout, so a frame that wants more than one box -- the
+	 * cards' and the connectors' -- takes these once and derives both.
 	 */
-	viewBox(margin = 0): ViewBox | null {
-		return viewBoxOf(
-			this.viewport.clientWidth,
-			this.viewport.clientHeight,
-			this.tx,
-			this.ty,
-			this.scale,
-			margin,
-		);
+	metrics(): ViewMetrics {
+		return {
+			width: this.viewport.clientWidth,
+			height: this.viewport.clientHeight,
+			tx: this.tx,
+			ty: this.ty,
+			scale: this.scale,
+		};
 	}
 
 	/** Scale and centre so the whole map is visible. */
