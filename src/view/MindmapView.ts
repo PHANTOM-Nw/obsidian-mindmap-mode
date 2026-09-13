@@ -58,7 +58,15 @@ import type { KeyCombo, ShortcutBindings } from "./shortcuts.ts";
 import { SearchBar } from "./searchBar.ts";
 import { BlockDialog } from "./blockDialog.ts";
 import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
-import { ensureMath, finishRenderMath, mathAvailable, mathSettled } from "./math.ts";
+import {
+	clearMathCache,
+	ensureMath,
+	finishRenderMath,
+	mathAvailable,
+	mathSettled,
+	resetPendingMath,
+	upgradePendingMath,
+} from "./math.ts";
 import type { Direction, DropMode, MapController } from "./interactions.ts";
 import { resolveIndentUnit } from "../settings.ts";
 import type MindmapPlugin from "../main.ts";
@@ -232,6 +240,19 @@ interface Anchor {
 	key: string;
 	screenX: number;
 	screenY: number;
+}
+
+/**
+ * What a paint owed the camera, held for the MathJax wait that follows it.
+ *
+ * The framing is spent by the paint that promised it, and the map the user ends
+ * up looking at is the one the formulas were rendered into -- so a paint that
+ * was going to fit, focus or reveal has to be able to promise it again.
+ */
+interface Framing {
+	fit: boolean;
+	focus: string | null;
+	reveal: string | null;
 }
 
 export class MindmapView extends TextFileView implements MapController {
@@ -477,6 +498,9 @@ export class MindmapView extends TextFileView implements MapController {
 			this.layoutNodes = [];
 			this.layoutElements = [];
 			this.paintRoot = null;
+			// Nothing this note's formulas render to is worth keeping for the
+			// next one, and the cache is bounded by dropping it here.
+			clearMathCache();
 			// `clear` means a different file, which is the only moment the map
 			// may re-fold. Saves and external edits arrive with clear === false,
 			// so typing can never collapse the tree out from under the user.
@@ -494,6 +518,7 @@ export class MindmapView extends TextFileView implements MapController {
 		this.layoutElements = [];
 		this.paintRoot = null;
 		this.elements.clear();
+		resetPendingMath();
 		this.resetSearch();
 		this.searchQuery = { text: "", regex: false };
 		this.collapsedKeys.clear();
@@ -616,6 +641,9 @@ export class MindmapView extends TextFileView implements MapController {
 		// measure them rather than reuse the sizes this one left behind.
 		this.layoutNodes = [];
 		this.layoutElements = [];
+		// A formula is rendered against the settings in force, so the typeset
+		// copies go with them.
+		clearMathCache();
 		if (this.scope) this.bindScope(this.scope);
 		this.canvas.setOptions({ wheel: this.plugin.settings.wheel });
 		this.render("settings");
@@ -1029,6 +1057,9 @@ export class MindmapView extends TextFileView implements MapController {
 
 		const s = this.plugin.settings;
 		this.elements.clear();
+		// The placeholders the last build left are about to be thrown away with
+		// the cards holding them, so only this build's may be upgraded.
+		resetPendingMath();
 		// Both layers are built off-tree and swapped in at the end of the build,
 		// below. A large map is a few hundred cards and as many connectors, and
 		// growing them inside the live document means the browser carries an
@@ -1132,29 +1163,21 @@ export class MindmapView extends TextFileView implements MapController {
 		this.rememberState();
 
 		this.paintRoot = rootLayout;
-		const wasFitting = this.needsFit;
-		const wasFocusing = this.restoreFocusKey;
-		const wasRevealing = this.pendingReveal;
+		const framing: Framing = {
+			fit: this.needsFit,
+			focus: this.restoreFocusKey,
+			reveal: this.pendingReveal,
+		};
 		this.measureAndPlace(rootLayout, visible, anchor, reason);
 		this.perf.span("paint", started, { reason, nodes: visible.length, reused });
 		if (!sawMath) return;
 
 		if (!mathSettled()) {
 			// First map with formulas this session: what is on screen right now
-			// is placeholder source text, so the cards have to be rebuilt rather
-			// than re-measured. `ensureMath` settles either way, so the repaint
-			// takes the branch below and this can run at most once per session.
-			void ensureMath().then(() => {
-				if (token !== this.paintToken) return;
-				if (wasFitting) {
-					this.needsFit = true;
-					this.restoreFocusKey = wasFocusing;
-				}
-				// Outside the guard on purpose: a jump has to be honoured on the
-				// map that formulas were actually rendered into, fit or no fit.
-				this.pendingReveal = wasRevealing;
-				this.paint("math-remeasure");
-			});
+			// is placeholder source text, because `renderMath` is only
+			// synchronous once MathJax is up. `ensureMath` settles either way, so
+			// this can run at most once per session.
+			void this.typesetMath(token, rootLayout, visible, anchor, framing);
 			return;
 		}
 		if (!mathAvailable()) return;
@@ -1166,8 +1189,8 @@ export class MindmapView extends TextFileView implements MapController {
 		//
 		// The flush is only ever worth a re-measure while a glyph is still new to
 		// the session, and the formulas on screen say whether this paint was one
-		// of those: when none of them moved, the whole-map pass is a layout of
-		// every card in the note for no change at all, so it is skipped.
+		// of those: when none of them moved, the pass is a layout of the whole
+		// note for no change at all, so it is skipped.
 		void finishRenderMath().then(() => {
 			if (token !== this.paintToken) return;
 			const mathStarted = this.perf.now();
@@ -1175,18 +1198,78 @@ export class MindmapView extends TextFileView implements MapController {
 				this.perf.span("math-remeasure", mathStarted, { changed: false });
 				return;
 			}
-			if (wasFitting) {
-				this.needsFit = true;
-				this.restoreFocusKey = wasFocusing;
-			}
-			this.pendingReveal = wasRevealing;
-			// Every card back first: this pass exists to re-measure them, and a
-			// culled one would hand back a zero. `measureAndPlace` culls again
-			// at the end, against wherever the camera lands.
-			this.showAllCards();
-			this.measureAndPlace(rootLayout, visible, anchor, "math-remeasure");
+			this.reframe(framing);
+			this.measureAndPlace(rootLayout, this.staleMathCards(visible), anchor, "math-remeasure");
 			this.perf.span("math-remeasure", mathStarted, { changed: true });
 		});
+	}
+
+	/**
+	 * Put the formulas into the map that is already on screen, then measure it.
+	 *
+	 * The one thing the first paint of the session could not do was typeset, so
+	 * that is the only thing this does: the cards, their text and the layout
+	 * around them are all still right, and rebuilding them would render every
+	 * formula a second time to arrive at the same map.
+	 */
+	private async typesetMath(
+		token: number,
+		rootLayout: LayoutNode,
+		visible: LayoutNode[],
+		anchor: Anchor | null,
+		framing: Framing,
+	): Promise<void> {
+		await ensureMath();
+		if (token !== this.paintToken) return;
+
+		const started = this.perf.now();
+		const upgraded = upgradePendingMath();
+		if (upgraded === 0) {
+			// MathJax never came up. The source text on the cards is the final
+			// answer, and it is what the map was laid out around already.
+			this.perf.span("math-typeset", started, { upgraded });
+			return;
+		}
+
+		// The formulas are in their cards, but MathJax emits its stylesheet
+		// adaptively, so they measure short until the flush lands.
+		await finishRenderMath();
+		if (token !== this.paintToken) return;
+
+		this.reframe(framing);
+		this.measureAndPlace(rootLayout, this.staleMathCards(visible), anchor, "math-remeasure");
+		this.perf.span("math-typeset", started, { upgraded });
+	}
+
+	/** Promise the camera again what the paint that waited on MathJax owed it. */
+	private reframe(framing: Framing): void {
+		if (framing.fit) {
+			this.needsFit = true;
+			this.restoreFocusKey = framing.focus;
+		}
+		// Outside the guard on purpose: a jump has to be honoured on the map that
+		// formulas were actually rendered into, fit or no fit.
+		this.pendingReveal = framing.reveal;
+	}
+
+	/**
+	 * The cards a formula just changed the size of, and which of them can say so.
+	 *
+	 * Only a card carrying a formula can have moved, so the rest of the note is
+	 * left alone -- a whole-map pass here is a measurement of every card in the
+	 * note to correct a few dozen. A culled card has no size to read, so it is
+	 * marked unmeasured instead and the cull that puts it back takes the
+	 * measurement, which is the path a card built off screen already takes.
+	 */
+	private staleMathCards(visible: LayoutNode[]): LayoutNode[] {
+		const readable: LayoutNode[] = [];
+		for (const layout of visible) {
+			const element = this.elements.get(layout.node.id);
+			if (!element || !element.hasMath) continue;
+			if (element.offscreen) element.measured = false;
+			else readable.push(layout);
+		}
+		return readable;
 	}
 
 	/**
@@ -1211,7 +1294,12 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	/**
-	 * Measure the cards that `paint()` built and position everything.
+	 * Measure cards and position everything.
+	 *
+	 * `measure` is what a paint has just built, or -- for a re-measure -- only the
+	 * cards something can have changed the size of. Everything else keeps the size
+	 * it was last measured at, which is the size the layout it is about to be run
+	 * through was given.
 	 *
 	 * Safe to run more than once over the same tree: `layoutTree` assigns
 	 * coordinates outright rather than accumulating them, and `renderEdges`
@@ -1219,7 +1307,7 @@ export class MindmapView extends TextFileView implements MapController {
 	 */
 	private measureAndPlace(
 		rootLayout: LayoutNode,
-		visible: LayoutNode[],
+		measure: LayoutNode[],
 		anchor: Anchor | null,
 		reason: PaintReason,
 	): void {
@@ -1229,7 +1317,7 @@ export class MindmapView extends TextFileView implements MapController {
 		// One batched read pass: every write above, every measurement here.
 		// offsetWidth, not getBoundingClientRect -- the cards sit inside a
 		// scaled `.mm-content`, and a rect would feed the zoom back into layout.
-		for (const layout of visible) {
+		for (const layout of measure) {
 			const element = this.elements.get(layout.node.id);
 			// A culled card is out of the document and measures as nothing. The
 			// size it had when it was last in view is the one that still holds,
