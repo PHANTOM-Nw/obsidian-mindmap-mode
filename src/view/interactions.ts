@@ -208,7 +208,48 @@ export function attachInteractions(controller: MapController): () => void {
 		return zone;
 	};
 
+	// Where the pointer was when this frame was asked for, and the handle that
+	// asked. A pointermove arrives far more often than the screen is painted,
+	// and resolving the drop zone means `elementFromPoint` plus a rect off
+	// whatever it finds -- two forced layouts for a highlight that can only be
+	// seen once a frame.
+	let dropFrame = 0;
+	let dropAt = { x: 0, y: 0 };
+
+	const cancelDropFrame = (): void => {
+		if (dropFrame === 0) return;
+		cancelAnimationFrame(dropFrame);
+		dropFrame = 0;
+	};
+
+	/** Resolve what is under the last pointer position and highlight it. */
+	const resolveDrop = (): void => {
+		if (dragId === null || !dragging) return;
+		// Pointer capture makes ev.target useless, so hit-test by coordinates.
+		const under = document.elementFromPoint(dropAt.x, dropAt.y);
+		const targetEl =
+			under instanceof HTMLElement ? under.closest<HTMLElement>(".mm-node") : null;
+
+		const targetId = targetEl?.dataset.id;
+		const mode =
+			targetEl && targetId && targetId !== dragId
+				? dropModeFor(dragId, targetId, targetEl, dropAt.y)
+				: "child";
+		// The zone can change without the card changing, and the highlight has to
+		// follow the pointer across that boundary.
+		if (targetEl === hovered && mode === hoveredMode) return;
+		clearHover();
+		if (!targetEl || !targetId || targetId === dragId) return;
+
+		hovered = targetEl;
+		hoveredMode = mode;
+		if (!controller.canDrop(dragId, targetId, mode)) targetEl.addClass("is-drop-invalid");
+		else if (mode === "child") targetEl.addClass("is-drop-target");
+		else targetEl.addClass(mode === "before" ? "is-drop-before" : "is-drop-after");
+	};
+
 	const endDrag = (): void => {
+		cancelDropFrame();
 		if (dragId) {
 			viewport
 				.querySelector<HTMLElement>(`.mm-node[data-id="${CSS.escape(dragId)}"]`)
@@ -252,27 +293,12 @@ export function attachInteractions(controller: MapController): () => void {
 			viewport.setPointerCapture(ev.pointerId);
 		}
 
-		// Pointer capture makes ev.target useless, so hit-test by coordinates.
-		const under = document.elementFromPoint(ev.clientX, ev.clientY);
-		const targetEl =
-			under instanceof HTMLElement ? under.closest<HTMLElement>(".mm-node") : null;
-
-		const targetId = targetEl?.dataset.id;
-		const mode =
-			targetEl && targetId && targetId !== dragId
-				? dropModeFor(dragId, targetId, targetEl, ev.clientY)
-				: "child";
-		// The zone can change without the card changing, and the highlight has to
-		// follow the pointer across that boundary.
-		if (targetEl === hovered && mode === hoveredMode) return;
-		clearHover();
-		if (!targetEl || !targetId || targetId === dragId) return;
-
-		hovered = targetEl;
-		hoveredMode = mode;
-		if (!controller.canDrop(dragId, targetId, mode)) targetEl.addClass("is-drop-invalid");
-		else if (mode === "child") targetEl.addClass("is-drop-target");
-		else targetEl.addClass(mode === "before" ? "is-drop-before" : "is-drop-after");
+		dropAt = { x: ev.clientX, y: ev.clientY };
+		if (dropFrame !== 0) return;
+		dropFrame = requestAnimationFrame(() => {
+			dropFrame = 0;
+			resolveDrop();
+		});
 	});
 
 	const finishDrag = (ev: PointerEvent): void => {
@@ -447,6 +473,7 @@ export function attachInteractions(controller: MapController): () => void {
 	});
 
 	return () => {
+		cancelDropFrame();
 		for (const off of cleanups) off();
 		cleanups.length = 0;
 	};
