@@ -9,6 +9,7 @@ import type {
 } from "obsidian";
 
 import { parseMarkdown } from "../model/parse.ts";
+import { annotationText, bodyCardCount } from "../model/annotations.ts";
 import type { MindNode, ParsedDoc } from "../model/types.ts";
 import {
 	addChild,
@@ -27,9 +28,11 @@ import {
 	moveNode,
 	outdentNode,
 	renameNode,
+	setAnnotation,
 	reorderDown,
 	reorderUp,
 	replaceBodyRange,
+	removeCheckbox,
 	toggleCheckbox,
 } from "../model/mutate.ts";
 import type { Mutation } from "../model/mutate.ts";
@@ -52,11 +55,13 @@ import { Perf } from "./perf.ts";
 import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
+import { nodeMaxWidth } from "./nodeWidth.ts";
 import { attachInteractions } from "./interactions.ts";
 import { SHORTCUTS, comboToString, resolveBindings } from "./shortcuts.ts";
 import type { KeyCombo, ShortcutBindings } from "./shortcuts.ts";
 import { SearchBar } from "./searchBar.ts";
 import { BlockDialog } from "./blockDialog.ts";
+import { AnnotationDialog } from "./annotationDialog.ts";
 import type { BlockDialogMode, DialogBlock } from "./blockDialog.ts";
 import {
 	clearMathCache,
@@ -88,9 +93,6 @@ const BODY_ID_MARK = "$body";
 /** Body cards show their block in full up to this much, then trail off. */
 const BODY_PREVIEW_CHARS = 2000;
 const BODY_PREVIEW_LINES = 40;
-
-/** Note content gets more room than a topic title needs. */
-const BODY_WIDTH_FACTOR = 1.6;
 
 /**
  * How far past the edge of the viewport a card is still kept in the document,
@@ -350,7 +352,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	private detachInteractions: (() => void) | null = null;
 	private popover: HTMLElement | null = null;
-	private dialog: BlockDialog | null = null;
+	private dialog: BlockDialog | AnnotationDialog | null = null;
 	private needsFit = true;
 	private paintedEmpty = false;
 	private paintToken = 0;
@@ -366,12 +368,14 @@ export class MindmapView extends TextFileView implements MapController {
 		this.canvas = new Canvas(this.contentEl, {
 			wheel: plugin.settings.wheel,
 			// Only blank space starts a pan; everything a node owns belongs to the
-			// drag and click handlers. `.mm-tools` — the toggle and add button —
-			// has to be named explicitly: it hangs off `.mm-node`, outside the
-			// card, and letting a pan start there means the canvas takes pointer
+			// drag and click handlers. The whole node, not just the card: the
+			// toggle, the add button and the annotation strip all sit outside the
+			// card, and letting a pan start on one means the canvas takes pointer
 			// capture, after which Chromium retargets the click to the viewport
-			// and the button never fires.
-			canPan: (target) => !target.closest(".mm-card, .mm-tools"),
+			// and the button never fires. A leaf's empty tools slot is still
+			// pannable because that row is `pointer-events: none` until hovered,
+			// so the pointer never lands on the node at all.
+			canPan: (target) => !target.closest(".mm-node"),
 			// Every camera move ends up here, coalesced to one call a frame:
 			// panning, zooming, fitting, and the jumps that framing does.
 			onView: () => this.cullToView(),
@@ -758,6 +762,7 @@ export class MindmapView extends TextFileView implements MapController {
 		const s = this.plugin.settings;
 		return {
 			title: this.file?.basename ?? "Untitled",
+			annotations: s.inlineAnnotations,
 			source: s.source,
 			rootPolicy: s.rootPolicy,
 			maxHeadingDepth: s.maxHeadingDepth,
@@ -994,6 +999,7 @@ export class MindmapView extends TextFileView implements MapController {
 		}));
 
 		node.bodyRanges.forEach((range, index) => {
+			if (node.annotationIndices.includes(index)) return;
 			const body = this.makeBodyNode(parsed, node, range, index);
 			merged.push({ line: range[0], node: body });
 		});
@@ -1026,6 +1032,7 @@ export class MindmapView extends TextFileView implements MapController {
 			lineStart: range[0],
 			blockEnd: range[1],
 			bodyRanges: [],
+			annotationIndices: [],
 			children: [],
 			// Kept for `revealAncestors`; `owner.children` is never touched, so the
 			// parsed tree stays exactly as the parser left it.
@@ -1036,7 +1043,7 @@ export class MindmapView extends TextFileView implements MapController {
 	}
 
 	private childCount(node: MindNode, showBody: boolean): number {
-		return node.children.length + (showBody ? node.bodyRanges.length : 0);
+		return node.children.length + (showBody ? bodyCardCount(node) : 0);
 	}
 
 	/**
@@ -1047,7 +1054,7 @@ export class MindmapView extends TextFileView implements MapController {
 	 * the other side of the root.
 	 */
 	private branchWeight(node: MindNode, showBody: boolean): number {
-		const bodies = showBody ? node.bodyRanges.length : 0;
+		const bodies = showBody ? bodyCardCount(node) : 0;
 		if (node.children.length === 0) return Math.max(1, bodies);
 		let total = bodies;
 		for (const child of node.children) total += this.branchWeight(child, showBody);
@@ -1056,7 +1063,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	/** Everything a collapsed node is hiding, body cards included. */
 	private hiddenCount(node: MindNode, showBody: boolean): number {
-		let total = showBody ? node.bodyRanges.length : 0;
+		let total = showBody ? bodyCardCount(node) : 0;
 		for (const child of node.children) total += 1 + this.hiddenCount(child, showBody);
 		return total;
 	}
@@ -1132,10 +1139,10 @@ export class MindmapView extends TextFileView implements MapController {
 			const node = layout.node;
 			const collapsed = this.collapsedKeys.has(node.key);
 			const isBody = node.kind === "body";
+			const hasAnnotation = node.annotationIndices.length > 0;
 			const element = buildNodeElement(this.nodeLayer, layout, {
-				maxWidth: isBody
-					? Math.round(s.maxNodeWidth * BODY_WIDTH_FACTOR)
-					: s.maxNodeWidth,
+				annotation: hasAnnotation ? annotationText(parsed, node) : null,
+				maxWidth: nodeMaxWidth(node.kind, hasAnnotation, s.maxNodeWidth),
 				branchColors: s.branchColors,
 				preformatted: isBody && looksPreformatted(node.text),
 				expandable: isBody,
@@ -1167,6 +1174,8 @@ export class MindmapView extends TextFileView implements MapController {
 			}
 			layout.width = before.width;
 			layout.height = before.height;
+			layout.cardWidth = before.cardWidth;
+			layout.cardHeight = before.cardHeight;
 			element.offscreen = true;
 			element.el.addClass("is-offscreen");
 			reused++;
@@ -1350,6 +1359,11 @@ export class MindmapView extends TextFileView implements MapController {
 			if (!element || element.offscreen) continue;
 			layout.width = element.el.offsetWidth;
 			layout.height = element.el.offsetHeight;
+			// The card apart from the node: an annotation strip is inside
+			// `.mm-node` and below `.mm-card`, and the layout centres, anchors
+			// and offsets on the card while spacing siblings by the node.
+			layout.cardWidth = element.card.offsetWidth;
+			layout.cardHeight = element.card.offsetHeight;
 			element.measured = true;
 			measured++;
 		}
@@ -1484,11 +1498,22 @@ export class MindmapView extends TextFileView implements MapController {
 			const layout = this.layoutNodes[i];
 			const width = element.el.offsetWidth;
 			const height = element.el.offsetHeight;
+			const cardWidth = element.card.offsetWidth;
+			const cardHeight = element.card.offsetHeight;
 			element.measured = true;
 			measured++;
-			if (width === layout.width && height === layout.height) continue;
+			if (
+				width === layout.width &&
+				height === layout.height &&
+				cardWidth === layout.cardWidth &&
+				cardHeight === layout.cardHeight
+			) {
+				continue;
+			}
 			layout.width = width;
 			layout.height = height;
+			layout.cardWidth = cardWidth;
+			layout.cardHeight = cardHeight;
 			changed++;
 		}
 		return { measured, changed };
@@ -1890,6 +1915,10 @@ export class MindmapView extends TextFileView implements MapController {
 		this.withNode(id, (parsed, node) => this.apply(toggleCheckbox(parsed, node)));
 	}
 
+	removeCheck(id: string): void {
+		this.withNode(id, (parsed, node) => this.apply(removeCheckbox(parsed, node)));
+	}
+
 	toggleFold(id: string): void {
 		this.withNode(id, (_parsed, node) => {
 			// Has to agree with the `hasChildren` that decided whether to draw the
@@ -1991,6 +2020,25 @@ export class MindmapView extends TextFileView implements MapController {
 				.setIcon("corner-down-right")
 				.onClick(() => this.addChildTo(id)),
 		);
+		if (!node.virtual && this.plugin.settings.inlineAnnotations) {
+			menu.addItem((item) => item
+				.setTitle(node.annotationIndices.length ? "Edit annotation" : "Add annotation")
+				.setIcon("sticky-note")
+				.onClick(() => this.editAnnotation(id)));
+		}
+		// Checking a task never takes its checkbox away -- so removing one lives
+		// here, where adding one does too.
+		if (node.kind === "listitem") {
+			menu.addItem((item) =>
+				item
+					.setTitle(node.checkbox === null ? "Add checkbox" : "Remove checkbox")
+					.setIcon(node.checkbox === null ? "square-check" : "square")
+					.onClick(() => {
+						if (node.checkbox === null) this.toggleCheck(id);
+						else this.removeCheck(id);
+					}),
+			);
+		}
 		if (node.parent) {
 			menu.addItem((item) =>
 				item
@@ -2049,8 +2097,11 @@ export class MindmapView extends TextFileView implements MapController {
 			return;
 		}
 
-		const cx = current.x + current.width / 2;
-		const cy = current.y + current.height / 2;
+		// Card centres, not node centres: an annotation hangs below the card
+		// without being part of it, and a step between cards should go where the
+		// cards look, not where the strips end.
+		const cx = current.x + current.cardWidth / 2;
+		const cy = current.y + current.cardHeight / 2;
 		let best: LayoutNode | null = null;
 		let bestScore = Infinity;
 
@@ -2059,8 +2110,8 @@ export class MindmapView extends TextFileView implements MapController {
 			// Body cards cannot hold the selection, so stepping onto one would
 			// leave the arrow keys apparently stuck.
 			if (this.bodyNodes.has(candidate.node.id)) continue;
-			const dx = candidate.x + candidate.width / 2 - cx;
-			const dy = candidate.y + candidate.height / 2 - cy;
+			const dx = candidate.x + candidate.cardWidth / 2 - cx;
+			const dy = candidate.y + candidate.cardHeight / 2 - cy;
 
 			let along: number;
 			let across: number;
@@ -2399,13 +2450,29 @@ export class MindmapView extends TextFileView implements MapController {
 		this.openBody(id, "read");
 	}
 
-	/**
-	 * Show a node's note content whole.
-	 *
-	 * The card only ever holds `previewOf`'s clipped text; the dialog is handed
-	 * `bodyRangeText`, which is the block's exact source, so "expand" really does
-	 * mean the whole block.
-	 */
+	/** Edit the annotation independently of the title and other body content. */
+	editAnnotation(id: string): void {
+		const parsed = this.parsed;
+		const node = parsed?.byId.get(id);
+		if (!parsed || !node || node.virtual || !this.plugin.settings.inlineAnnotations) return;
+		this.closePopover();
+		this.closeDialog();
+		const original = annotationText(parsed, node);
+		const key = node.key;
+		this.dialog = new AnnotationDialog(this.app, node.text, original, (text) => {
+			const snapshot = parseMarkdown(this.data, this.parseOptions());
+			const current = snapshot.byKey.get(key);
+			if (!this.plugin.settings.inlineAnnotations || !current || annotationText(snapshot, current) !== original) {
+				new Notice("This annotation changed while the editor was open. Copy your draft and reopen it before saving.");
+				return false;
+			}
+			this.apply(setAnnotation(snapshot, current, text));
+			return true;
+		}, () => { this.dialog = null; });
+		this.dialog.open();
+	}
+
+	/** Show the original, untruncated source of a note-content block. */
 	openBody(id: string, mode: BlockDialogMode = "edit"): void {
 		const parsed = this.parsed;
 		if (!parsed) return;
@@ -2419,9 +2486,17 @@ export class MindmapView extends TextFileView implements MapController {
 
 		const blocks: DialogBlock[] = [];
 		node.bodyRanges.forEach((range, index) => {
-			if (only !== undefined && index !== only) return;
+			// One block when a body card asked; otherwise every block the node
+			// owns -- except its annotation, which is not note content the way a
+			// paragraph is. It has its own editor, and `childrenOf` has already
+			// kept it from becoming a card of its own.
+			if (only === undefined ? node.annotationIndices.includes(index) : index !== only) {
+				return;
+			}
 			blocks.push({ index, range, text: bodyRangeText(parsed, range) });
 		});
+		// Nothing left to show: a node whose only body ranges are annotations has
+		// no note content, exactly like one with no body ranges at all.
 		if (blocks.length === 0) return;
 
 		// Only one panel at a time: a dialog opened over the shortcuts popover
@@ -2527,11 +2602,18 @@ export class MindmapView extends TextFileView implements MapController {
 						palette === null || branch < 0 ? null : palette[branch % palette.length],
 					nextId: randomId,
 					// A body card shows a preview; the file it goes into holds the
-					// block whole.
-					fullText: (item) =>
-						parsed && item.node.kind === "body"
-							? bodyRangeText(parsed, [item.node.lineStart, item.node.blockEnd])
-							: null,
+					// block whole. An annotation has no card of its own on the map
+					// -- and gets none in the file either: its text goes into the
+					// card it hangs under, which is where it is read, and the box
+					// that card is exported at already includes the strip.
+					fullText: (item) => {
+						if (!parsed) return null;
+						if (item.node.kind === "body") {
+							return bodyRangeText(parsed, [item.node.lineStart, item.node.blockEnd]);
+						}
+						if (item.node.annotationIndices.length === 0) return null;
+						return `${item.node.text}\n\n${annotationText(parsed, item.node)}`;
+					},
 				},
 			),
 		);

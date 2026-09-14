@@ -226,8 +226,9 @@ const TABLE = [
 	},
 	{
 		action: "toggle-check",
-		name: "Cycle the checkbox",
-		description: "Step the selected list item through none, unchecked and checked.",
+		name: "Check or uncheck",
+		description:
+			"Tick the selected list item off, or clear it again. An item with no checkbox gets an empty one; Remove checkbox in the node's context menu takes one away.",
 		defaults: ["Mod+Enter"],
 	},
 	{

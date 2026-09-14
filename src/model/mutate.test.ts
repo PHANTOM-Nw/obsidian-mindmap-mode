@@ -18,10 +18,12 @@ import {
 	moveBefore,
 	moveNode,
 	outdentNode,
+	removeCheckbox,
 	renameNode,
 	reorderDown,
 	reorderUp,
 	replaceBodyRange,
+	setCheckbox,
 	toggleCheckbox,
 } from "./mutate.ts";
 import type { Mutation } from "./mutate.ts";
@@ -208,19 +210,68 @@ test("delete is rejected on the root", () => {
 	assert.equal(deleteNode(p, p.root).ok, false);
 });
 
-test("toggleCheckbox cycles none -> unchecked -> checked -> none", () => {
+/** Toggle `title` on a freshly parsed copy of `text`, the way the view does. */
+function toggled(text: string, title: string): string {
+	const p = parse(text);
+	return toggleCheckbox(p, find(p, title)).text;
+}
+
+test("toggleCheckbox adds a box to a plain item, then only checks and unchecks", () => {
 	let text = "# R\n\n- plain\n";
-	let p = parse(text);
-	text = toggleCheckbox(p, find(p, "plain")).text;
+	text = toggled(text, "plain");
 	assert.ok(lines(text).includes("- [ ] plain"));
 
-	p = parse(text);
-	text = toggleCheckbox(p, find(p, "plain")).text;
+	text = toggled(text, "plain");
 	assert.ok(lines(text).includes("- [x] plain"));
 
-	p = parse(text);
-	text = toggleCheckbox(p, find(p, "plain")).text;
-	assert.ok(lines(text).includes("- plain"));
+	// The third press is an uncheck, not a removal: the card's checkbox is drawn
+	// only for an item that has one, so losing it here is losing the control.
+	text = toggled(text, "plain");
+	assert.ok(lines(text).includes("- [ ] plain"));
+});
+
+test("unchecking a task is byte-identical to the file it came from", () => {
+	const start = "# R\n\n- [ ] text\n";
+	const checked = toggled(start, "text");
+	assert.equal(checked, "# R\n\n- [x] text\n");
+	assert.equal(toggled(checked, "text"), start);
+});
+
+test("uncheck and re-check keep marker, indent, spacing and the lines around", () => {
+	const cases: Array<[string, string, string]> = [
+		["* [x] a\n", "* [ ] a\n", "a"],
+		["1. [x] a\n", "1. [ ] a\n", "a"],
+		["-   [x]   done   \n", "-   [ ]   done   \n", "done"],
+		["- p\n\t- [x] a\n", "- p\n\t- [ ] a\n", "a"],
+		["# R\r\n\r\n- [x] a\r\n", "# R\r\n\r\n- [ ] a\r\n", "a"],
+		["# R\n\n- [x] a\n  : note\n  body\n\n- b\n", "# R\n\n- [ ] a\n  : note\n  body\n\n- b\n", "a"],
+	];
+	for (const [checked, unchecked, title] of cases) {
+		assert.equal(toggled(checked, title), unchecked, checked);
+		assert.equal(toggled(unchecked, title), checked, unchecked);
+	}
+});
+
+test("an uppercase [X] unchecks", () => {
+	assert.equal(toggled("- [X] a\n", "a"), "- [ ] a\n");
+});
+
+test("toggleCheckbox twice on one parse is the same edit, not the next state", () => {
+	const p = parse("# R\n\n- [ ] text\n");
+	const node = find(p, "text");
+	const once = toggleCheckbox(p, node).text;
+	assert.equal(once, "# R\n\n- [x] text\n");
+	assert.equal(toggleCheckbox(p, node).text, once);
+});
+
+test("removeCheckbox is how a checkbox goes, and setCheckbox refuses a no-op", () => {
+	const p = parse("# R\n\n- [x] text\n");
+	assert.equal(removeCheckbox(p, find(p, "text")).text, "# R\n\n- text\n");
+
+	const plain = parse("# R\n\n- text\n");
+	assert.equal(removeCheckbox(plain, find(plain, "text")).ok, false);
+	assert.equal(setCheckbox(plain, find(plain, "text"), null).ok, false);
+	assert.equal(setCheckbox(p, find(p, "text"), "x").ok, false);
 });
 
 test("toggleCheckbox is rejected on headings", () => {

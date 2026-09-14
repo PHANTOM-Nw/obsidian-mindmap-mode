@@ -246,6 +246,19 @@
 .mm-node[data-branch="8"] { --mm-branch: var(--mm-b8); }
 .mm-node[data-branch="9"] { --mm-branch: var(--mm-b9); }
 
+/*
+ * The card's own row, and the containing block for everything positioned
+ * against the card rather than against the node: `.mm-tools` hangs off this.
+ *
+ * A node is two boxes -- this row, and the annotation strip under it -- and
+ * only the row is the card. Nothing may be put in this element's flow: its
+ * height is the card's height, which is what the layout centres children and
+ * anchors connectors on.
+ */
+.mm-row {
+	position: relative;
+}
+
 .mm-card {
 	display: flex;
 	align-items: baseline;
@@ -365,6 +378,50 @@
 	user-select: text;
 	min-width: 4ch;
 	box-shadow: 0 1px 0 0 var(--interactive-accent);
+}
+
+/*
+ * The strip under the card: part of the node box, never a branch of its own and
+ * never part of the card.
+ *
+ * An ordinary block in `.mm-node`'s flow, so its max-content width counts
+ * towards the node's: the node is as wide as the wider of the card's title and
+ * this strip, up to the inline max-width `nodeMaxWidth` gives it -- the
+ * note-content cap wherever there is a strip at all. The card fills the node
+ * box, so card and strip are always exactly as wide as each other. The inset is
+ * padding rather than margin, which keeps the rule on the card's own left edge:
+ * 3px of rule plus 10px puts the text at 13px, under the card's own text.
+ */
+.mm-annotation {
+	box-sizing: border-box;
+	margin: 7px 0 3px;
+	border-left: 3px solid var(--text-faint);
+	padding: 0 0 0 10px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-weight: 400;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+	cursor: text;
+	min-height: 1.5em;
+}
+
+.mm-annotation .mm-link[data-href] { cursor: pointer; }
+
+.mm-annotation-input {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 140px;
+	resize: vertical;
+	white-space: pre-wrap;
+}
+
+.mm-annotation-hint {
+	margin: 6px 0 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }
 
 .mm-placeholder {
@@ -568,7 +625,12 @@
    button would switch itself off under the pointer sent to press it.
 
    Absolutely positioned, like everything else outside the card: the view sizes
-   cards with offsetWidth, and a row in the flow would widen every one of them. */
+   cards with offsetWidth, and a row in the flow would widen every one of them.
+
+   Positioned against `.mm-row`, which is the card's own box, and not against
+   `.mm-node`, which also holds the annotation strip: `top: 50%` of the node
+   would drift down the side of an annotated card, and `left: 100%` is only
+   flush because the row is exactly as wide as the card. */
 .mm-tools {
 	position: absolute;
 	top: 50%;

@@ -14,11 +14,20 @@ import {
 	renameNote,
 } from "./foldStore.ts";
 import type { FoldStore, NoteViewEntry, NoteViewState } from "./foldStore.ts";
+import {
+	UPDATE_NOTICE,
+	UPDATE_NOTICE_MS,
+	shouldAnnounce,
+	versionToRecord,
+} from "./updateNotice.ts";
 
 const HEADER_BUTTON_CLASS = "mindmap-mode-toggle";
 
 /** Where the fold store sits in `data.json`, beside the flat settings. */
 const FOLD_STATE_KEY = "foldState";
+
+/** Where the last version this vault ran sits, beside the other two. */
+const VERSION_KEY = "lastSeenVersion";
 
 /**
  * How long a fold change waits before it reaches disk.
@@ -34,6 +43,12 @@ export default class MindmapPlugin extends Plugin {
 
 	/** Fold and focus state per note path. Shares `data.json` with the settings. */
 	private foldStore: FoldStore = {};
+
+	/** The version of the plugin this vault last loaded, or null if none is kept. */
+	private lastSeenVersion: string | null = null;
+
+	/** Whether `data.json` held no settings, which is a first install. */
+	private freshInstall = false;
 
 	/**
 	 * The markdown view state a leaf had before it became a map, so toggling
@@ -189,7 +204,32 @@ export default class MindmapPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => this.refreshHeaderButtons()),
 		);
-		this.app.workspace.onLayoutReady(() => this.refreshHeaderButtons());
+		this.app.workspace.onLayoutReady(() => {
+			this.refreshHeaderButtons();
+			// After layout: a notice raised while Obsidian is still starting up
+			// competes with Obsidian's own, and the user is not looking yet.
+			void this.reviewVersion();
+		});
+	}
+
+	/**
+	 * One notice per update, on the load that follows it, and a record of the
+	 * version so the next load stays quiet.
+	 *
+	 * An update from the plugin browser is silent, and inline annotations redraw
+	 * `: ` lines in notes the user already has -- so the change announces itself
+	 * once rather than waiting to be noticed.
+	 */
+	private async reviewVersion(): Promise<void> {
+		const current = this.manifest.version;
+		if (shouldAnnounce(this.lastSeenVersion, current, this.freshInstall)) {
+			new Notice(UPDATE_NOTICE, UPDATE_NOTICE_MS);
+		}
+		const record = versionToRecord(this.lastSeenVersion, current);
+		// Every ordinary load lands here with nothing to write.
+		if (record === null) return;
+		this.lastSeenVersion = record;
+		await this.savePluginData();
 	}
 
 	override onunload(): void {
@@ -208,8 +248,10 @@ export default class MindmapPlugin extends Plugin {
 		// beside them under one reserved key. Lifting it out before the spread is
 		// what stops it riding into `this.settings` as an unrecognised setting --
 		// which the next save would then write back inside itself, once per save.
-		const { [FOLD_STATE_KEY]: folds, ...rest } = stored ?? {};
+		const { [FOLD_STATE_KEY]: folds, [VERSION_KEY]: seen, ...rest } = stored ?? {};
 		this.foldStore = readStore(folds);
+		this.lastSeenVersion = typeof seen === "string" ? seen : null;
+		this.freshInstall = Object.keys(rest).length === 0;
 		const merged = { ...DEFAULT_SETTINGS, ...(rest as Partial<MindmapSettings>) };
 		// The spread is shallow, so a vault with no rebound shortcuts would share
 		// the one object `DEFAULT_SETTINGS` holds -- and the first rebinding would
@@ -234,7 +276,8 @@ export default class MindmapPlugin extends Plugin {
 		// Whatever the timer was going to write is in this write already, so a
 		// settings change spends the pending fold save rather than racing it.
 		this.queueSave.cancel();
-		await this.saveData({ ...this.settings, [FOLD_STATE_KEY]: this.foldStore });
+		const version = this.lastSeenVersion === null ? {} : { [VERSION_KEY]: this.lastSeenVersion };
+		await this.saveData({ ...this.settings, [FOLD_STATE_KEY]: this.foldStore, ...version });
 	}
 
 	/** Swap the store and schedule a write, unless nothing actually changed. */

@@ -18,6 +18,10 @@ MindNode, except the data never stops being your markdown note.
   generated, copied, or written to a sidecar file.
 - **Your outline is the map.** Headings nest by level; nested bullets hang under
   the heading they belong to. What you already wrote is the structure.
+- **Notes on a node.** A line written as `: text` under a heading or a bullet
+  becomes that node's [annotation](#node-annotations) — muted text under its
+  card, not a card of its own. Obsidian's editing and reading views show the
+  same line as an ordinary paragraph that starts with a colon.
 - **Opens folded.** A map starts at the root plus its top-level branches, each
   toggle showing how many nodes are hiding behind it. Open one branch and you get
   one more level, not the whole subtree.
@@ -51,10 +55,11 @@ reading.
 | Input | Action |
 | --- | --- |
 | Double-click / `F2` | Edit the node text inline |
+| Double-click an annotation | Edit the `: ` lines under that card |
 | **⤢** on a content card | Show the whole block, rendered |
 | Click a link in a content card | Open it — note, heading, PDF, attachment or web address |
 | **+** beside a card | New child |
-| Right-click a card | The node's menu: add a child, add a sibling above or below, fold, rename, delete |
+| Right-click a card | The node's menu: add a child, add a sibling above or below, annotate, fold, rename, delete |
 | `Enter` | New sibling |
 | `Tab` | New child |
 | `Shift`+`Tab` | Outdent |
@@ -65,7 +70,7 @@ reading.
 | Arrow keys | Move the selection |
 | Drag a card onto another | Reparent it |
 | Drag onto a card's top / bottom edge | Drop it in beside that card, above or below |
-| `Ctrl`/`Cmd`+`Enter` | Cycle the checkbox: none → `[ ]` → `[x]` → none |
+| `Ctrl`/`Cmd`+`Enter` | Check or uncheck: `[ ]` ⇄ `[x]`, and an item with no checkbox gets one (**Remove checkbox** in the context menu takes it away) |
 | `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
 | `Ctrl`/`Cmd`+`0` | Fit the map to the window |
 | `Ctrl`/`Cmd`+`=` / `-` | Zoom in / out |
@@ -120,6 +125,57 @@ splits them between the two sides of the root by weight, so their order is its t
 decide — a drop anywhere on a top-level card reparents, as it always has. From
 the second level down, siblings run top to bottom in file order, and the edge of
 a card is where you change it.
+
+### Node annotations
+
+A line that begins with `: ` under a heading or a list item is an annotation:
+it hangs under that node's card in muted text behind a vertical rule instead
+of becoming a card of its own. Consecutive `: ` lines keep their line breaks,
+a lone `:` is a blank line inside the annotation, and a long line wraps at the
+width note content gets — **Maximum card width** times 1.6. An annotation may
+make its card wider than its title alone would, up to that width, while the
+title itself still wraps at **Maximum card width**; a card and the strip under
+it are always exactly as wide as each other.
+
+```markdown
+### Generalization
+: Transfers a skill to an unfamiliar environment.
+:
+: A second paragraph.
+
+- Adaptation
+  : Improves during use.
+  : A second line.
+```
+
+This is a convention of this plugin, not of Markdown. Obsidian's editing and
+reading views show a `: ` line as an ordinary line that happens to start with
+a colon, so the note still reads as a note everywhere else — nothing is
+rewritten to make the map work, and nothing is added to the file that only the
+map understands.
+
+Under a list, indent an annotation to the item's content column, the column
+the item's own text starts in. That column also says what the line belongs to:
+a `: ` line re-anchors the nesting to the item whose content column it
+matches, so list items written after it and indented deeper become that item's
+children rather than the previous item's. Four spaces past the content column
+is indented code, and fenced code is left alone entirely.
+
+Double-click an annotation, or pick **Add annotation** / **Edit annotation**
+from a node's context menu, to open a multiline editor. Enter inserts a line
+break, blank lines are kept, and the colon prefixes are written back to the
+file for you. `Ctrl`/`Cmd`+`Enter` or **Save** saves; saving an empty box
+removes the annotation. The write replaces only the annotation's own lines, so
+the rest of the note comes back byte-identical, and an annotation moves with
+the node it belongs to. If the annotation changed in the file while the editor
+was open, saving is refused and the editor stays open, so the draft is still
+there to copy.
+
+An annotation stays visible when its node is folded, and does not depend on
+**Show note content**. Turn **Inline annotations** off in Appearance to read
+`: ` lines as ordinary body cards again. Find in the mind map matches titles,
+not annotations. A node the source or heading-depth settings leave out of the
+map keeps its `: ` lines as ordinary body content.
 
 ### Paragraphs, code blocks and tables
 
@@ -213,9 +269,14 @@ real notes.
 
 Node source (headings and lists / headings only / lists only), deepest heading
 level, root node policy, indent unit for new list items, layout (balanced or
-single-sided), branch colours, whether note content appears as cards, card
-width, spacing, wheel behaviour, whether to remember fold state, and whether to
-add the header button.
+single-sided), branch colours, whether note content appears as cards, whether
+`: ` lines render as annotations, card width, spacing, wheel behaviour, whether
+to remember fold state, and whether to add the header button.
+
+**Inline annotations**, in Appearance, is on: a `: text` line under a heading or
+a list item is drawn as that node's [annotation](#node-annotations) rather than
+as a body card of its own. Turn it off and every such line is an ordinary
+content card again — nothing in the note changes either way.
 
 Turning **Remember fold state** off makes every map open at the root plus its
 top-level branches, as it did before. There is also a command, *Forget the saved

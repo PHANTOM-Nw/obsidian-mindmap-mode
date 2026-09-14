@@ -17,6 +17,7 @@ export interface MapController {
 	selectedId(): string | null;
 	select(id: string | null): void;
 	beginEdit(id: string): void;
+	editAnnotation(id: string): void;
 
 	addChildTo(id: string): void;
 	addSiblingTo(id: string): void;
@@ -105,7 +106,7 @@ export function attachInteractions(controller: MapController): () => void {
 		// Links, but only in note content: a title is something you select and
 		// drag, and a link filling one would leave no way to grab the node.
 		const link = target.closest<HTMLElement>(".mm-link[data-href], .mm-embed[data-href]");
-		if (link?.closest('.mm-node[data-kind="body"]')) {
+		if (link?.closest('.mm-node[data-kind="body"], .mm-annotation')) {
 			const href = link.dataset.href;
 			if (href) controller.openLink(href, ev);
 			ev.preventDefault();
@@ -154,6 +155,10 @@ export function attachInteractions(controller: MapController): () => void {
 		const id = nodeIdFrom(target);
 		if (!id) return;
 		ev.preventDefault();
+		if (target.closest(".mm-annotation")) {
+			controller.editAnnotation(id);
+			return;
+		}
 		controller.beginEdit(id);
 	});
 
@@ -182,8 +187,14 @@ export function attachInteractions(controller: MapController): () => void {
 	 *
 	 * A rect is the right tool here -- this is hit-testing in screen space, where
 	 * the pointer already lives, not measuring a card for layout.
+	 *
+	 * The card's rect, not the node's: the highlight these zones choose is drawn
+	 * on `.mm-card`, and an annotation strip stretches `.mm-node` below it. Read
+	 * off the node, the "after" band would sit at the bottom of the strip while
+	 * the line marking it was drawn along the bottom of the card.
 	 */
-	const zoneOf = (el: HTMLElement, clientY: number): DropMode => {
+	const zoneOf = (node: HTMLElement, clientY: number): DropMode => {
+		const el = node.querySelector<HTMLElement>(".mm-card") ?? node;
 		const rect = el.getBoundingClientRect();
 		const edge = Math.min(rect.height * 0.3, 14);
 		if (clientY < rect.top + edge) return "before";

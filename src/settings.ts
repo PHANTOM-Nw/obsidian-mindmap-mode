@@ -40,6 +40,7 @@ export interface MindmapSettings {
 	rememberFolds: boolean;
 	branchColors: boolean;
 	showBodyNodes: boolean;
+	inlineAnnotations: boolean;
 	maxNodeWidth: number;
 	horizontalGap: number;
 	verticalGap: number;
@@ -67,6 +68,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
 	rememberFolds: true,
 	branchColors: true,
 	showBodyNodes: true,
+	inlineAnnotations: true,
 	maxNodeWidth: 340,
 	horizontalGap: 64,
 	verticalGap: 14,
@@ -94,9 +96,58 @@ type SettingKey = keyof MindmapSettings;
 /** The one setting that redraws the note header rather than the open maps. */
 const HEADER_BUTTON_KEY: SettingKey = "addHeaderButton";
 
+/**
+ * A row's description.
+ *
+ * A builder rather than a ready-made fragment: appending a `DocumentFragment`
+ * empties it, so one built here at module scope would describe the first
+ * rendering of the tab and nothing after it. Both renderers call it once per
+ * row they draw, and Obsidian searches the text it contains either way.
+ */
+type SettingDesc = string | (() => DocumentFragment);
+
+/** A control row as Obsidian takes it, with `desc` widened to the above. */
+type ControlItem = Omit<SettingDefinitionControl<SettingKey>, "desc"> & {
+	desc?: SettingDesc;
+};
+
 interface SettingGroup {
 	heading: string;
-	items: SettingDefinitionControl<SettingKey>[];
+	items: ControlItem[];
+}
+
+/** What either renderer hands Obsidian for one row's description. */
+function describe(desc: SettingDesc | undefined): string | DocumentFragment | undefined {
+	return typeof desc === "function" ? desc() : desc;
+}
+
+/**
+ * The one description that has to spell out its own syntax: an annotation is a
+ * convention of this plugin, so nothing in the note the user already has says
+ * what a colon at the start of a line will do.
+ */
+function annotationDesc(): DocumentFragment {
+	return createFragment((frag) => {
+		frag.appendText("A body line written as ");
+		frag.createEl("code", { text: ": text" });
+		frag.appendText(
+			" under a heading or list item hangs under that node's card in muted text"
+				+ " instead of becoming a card of its own — a bullet followed by ",
+		);
+		frag.createEl("code", { text: ": Improves during use." });
+		frag.appendText(" carries that line as its note. Consecutive ");
+		frag.createEl("code", { text: ": " });
+		frag.appendText(" lines keep their line breaks, and a lone ");
+		frag.createEl("code", { text: ":" });
+		frag.appendText(
+			" is a blank line between them. Obsidian's own editing and reading views"
+				+ " show such a line as an ordinary paragraph that starts with a colon."
+				+ " Double-click an annotation on the map, or pick Add annotation from a"
+				+ " node's context menu, to edit one — the colon prefixes are written"
+				+ " back to the note for you. Turn this off to read those lines as"
+				+ " ordinary body cards again.",
+		);
+	});
 }
 
 /**
@@ -188,6 +239,11 @@ const GROUPS: SettingGroup[] = [
 				control: { type: "toggle", key: "showBodyNodes" },
 			},
 			{
+				name: "Inline annotations",
+				desc: annotationDesc,
+				control: { type: "toggle", key: "inlineAnnotations" },
+			},
+			{
 				name: "Maximum card width",
 				control: { type: "slider", key: "maxNodeWidth", min: 140, max: 520, step: 20 },
 			},
@@ -270,7 +326,7 @@ export class MindmapSettingTab extends PluginSettingTab {
 		const groups: SettingDefinitionItem[] = GROUPS.map((group) => ({
 			type: "group" as const,
 			heading: group.heading,
-			items: group.items,
+			items: group.items.map((item) => ({ ...item, desc: describe(item.desc) })),
 		}));
 		const rows: SettingDefinitionRender[] = SHORTCUTS.map((entry) => ({
 			name: entry.name,
@@ -325,12 +381,10 @@ export class MindmapSettingTab extends PluginSettingTab {
 		this.endRecording();
 	}
 
-	private renderItem(
-		containerEl: HTMLElement,
-		item: SettingDefinitionControl<SettingKey>,
-	): void {
+	private renderItem(containerEl: HTMLElement, item: ControlItem): void {
 		const setting = new Setting(containerEl).setName(item.name);
-		if (typeof item.desc === "string") setting.setDesc(item.desc);
+		const desc = describe(item.desc);
+		if (desc !== undefined) setting.setDesc(desc);
 
 		const control = item.control;
 		const commit = (value: string | number | boolean): Promise<void> =>

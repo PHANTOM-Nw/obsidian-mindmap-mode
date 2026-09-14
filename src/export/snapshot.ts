@@ -63,7 +63,7 @@ export interface Snapshot {
  * Longhands throughout: `getComputedStyle` answers a shorthand with whatever
  * the engine feels like reconstructing, and a longhand with the used value.
  */
-const COPIED = [
+export const COPIED = [
 	"font-family",
 	"font-size",
 	"font-weight",
@@ -117,6 +117,9 @@ const COPIED = [
 	"left",
 	"top",
 	"white-space",
+	// The annotation strip breaks anywhere and the card's text only at a word;
+	// uncopied, both would fall back to `normal` and rewrap in the file.
+	"overflow-wrap",
 	"text-align",
 	"text-decoration-line",
 	"text-decoration-color",
@@ -141,7 +144,7 @@ const COPIED = [
  * difference between a fragment that carries a font stack per element and one
  * that carries it once.
  */
-const INHERITED = new Set([
+export const INHERITED = new Set([
 	"font-family",
 	"font-size",
 	"font-weight",
@@ -150,6 +153,7 @@ const INHERITED = new Set([
 	"letter-spacing",
 	"color",
 	"white-space",
+	"overflow-wrap",
 	"text-align",
 	"list-style-type",
 	"visibility",
@@ -164,12 +168,13 @@ const INHERITED = new Set([
  * Values equal to the CSS initial value. The exported document has no
  * stylesheet, so an absent property already resolves to exactly these.
  */
-const INITIAL: Record<string, string> = {
+export const INITIAL: Record<string, string> = {
 	"background-image": "none",
 	"box-shadow": "none",
 	"text-decoration-line": "none",
 	"stroke-dasharray": "none",
 	"max-width": "none",
+	"overflow-wrap": "normal",
 	"min-width": "0px",
 	"opacity": "1",
 	"visibility": "visible",

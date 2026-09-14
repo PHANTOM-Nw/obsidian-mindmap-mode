@@ -1,4 +1,5 @@
 import { fromText, isBlank, toText } from "./lines.ts";
+import { isAnnotationLine, partitionAnnotations } from "./annotations.ts";
 import { DEFAULT_PARSE_OPTIONS, indentWidthOf } from "./types.ts";
 import type {
 	CheckboxState,
@@ -51,6 +52,7 @@ function makeNode(kind: NodeKind, parent: MindNode | null): MindNode {
 		lineStart: -1,
 		blockEnd: -1,
 		bodyRanges: [],
+		annotationIndices: [],
 		children: [],
 		parent,
 	};
@@ -88,6 +90,8 @@ export function parseMarkdown(
 	const headingStack: MindNode[] = [root];
 	const listStack: MindNode[] = [];
 	let current: MindNode = root;
+	const annotationLines = new Map<MindNode, Set<number>>();
+	let annotationsAllowed = true;
 
 	let fenceChar = "";
 	let fenceLen = 0;
@@ -123,10 +127,12 @@ export function parseMarkdown(
 		if (heading) {
 			const level = heading[2].length;
 			if (level > opts.maxHeadingDepth) {
+				annotationsAllowed = false;
 				addBody(current, i);
 				continue;
 			}
 			const [text, suffix] = splitHeadingSuffix(heading[4] ?? "");
+			annotationsAllowed = true;
 
 			listStack.length = 0; // a heading always terminates an open list
 			while (
@@ -155,6 +161,7 @@ export function parseMarkdown(
 		// --- list item ----------------------------------------------------------
 		const list = LIST.exec(line);
 		if (list) {
+			annotationsAllowed = true;
 			const indent = list[1];
 			const width = indentWidthOf(indent);
 
@@ -203,6 +210,16 @@ export function parseMarkdown(
 
 		const ws = LEADING_WS.exec(line);
 		const width = indentWidthOf(ws ? ws[0] : "");
+		// An annotation may return to a parent list item after its nested children.
+		// Resolve its explicit content indentation before the ordinary-body fallback.
+		if (opts.annotations && annotationsAllowed) {
+			for (let index = listStack.length - 1; index >= 0; index--) {
+				if (isAnnotationLine(line, listStack[index])) {
+					listStack.length = index + 1;
+					break;
+				}
+			}
+		}
 		const openItem = listStack[listStack.length - 1];
 		if (openItem && width > openItem.indentWidth) {
 			// Indented past the marker: a continuation of that item.
@@ -213,11 +230,17 @@ export function parseMarkdown(
 			current = headingStack[headingStack.length - 1];
 			addBody(current, i);
 		}
+		if (opts.annotations && annotationsAllowed && isAnnotationLine(line, current)) {
+			const owned = annotationLines.get(current) ?? new Set<number>();
+			owned.add(i);
+			annotationLines.set(current, owned);
+		}
 	}
 
 	projectSource(root, opts.source);
 	dropBlankBodyRanges(root, lines);
 	const promoted = promoteRoot(root, opts, lines);
+	partitionAnnotations(promoted, annotationLines, lines);
 	computeBlockEnd(promoted, lines);
 
 	const byId = new Map<string, MindNode>();

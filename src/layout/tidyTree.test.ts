@@ -33,30 +33,52 @@ function mindNode(text: string): MindNode {
 		lineStart: counter,
 		blockEnd: counter,
 		bodyRanges: [],
+		annotationIndices: [],
 		children: [],
 		parent: null,
 	};
 }
 
-/** Build a layout tree with fixed card sizes, standing in for DOM measurement. */
-function build(
-	spec: { w?: number; h?: number; children?: unknown[] },
-	parent: LayoutNode | null = null,
-	depth = 0,
-): LayoutNode {
+/**
+ * Build a layout tree with fixed card sizes, standing in for DOM measurement.
+ *
+ * `w`/`h` are the card. `ann` is how much taller than its card the node box is
+ * -- the annotation strip hanging below it -- and `nodeW` how much wider, which
+ * the stylesheet never allows but which pins down which of the two boxes the
+ * horizontal maths reads.
+ */
+interface Spec {
+	w?: number;
+	h?: number;
+	ann?: number;
+	nodeW?: number;
+	children?: unknown[];
+}
+
+function build(spec: Spec, parent: LayoutNode | null = null, depth = 0): LayoutNode {
 	const layout = createLayoutNode(mindNode(`node-${counter}`), parent, depth);
-	layout.width = spec.w ?? 120;
-	layout.height = spec.h ?? 30;
+	layout.cardWidth = spec.w ?? 120;
+	layout.cardHeight = spec.h ?? 30;
+	layout.width = spec.nodeW ?? layout.cardWidth;
+	layout.height = layout.cardHeight + (spec.ann ?? 0);
 	for (const child of spec.children ?? []) {
-		layout.children.push(
-			build(child as { w?: number; h?: number; children?: unknown[] }, layout, depth + 1),
-		);
+		layout.children.push(build(child as Spec, layout, depth + 1));
 	}
 	return layout;
 }
 
 function leaf(w = 120, h = 30) {
 	return { w, h };
+}
+
+/** Every node's placement and both of its boxes, keyed by id. */
+function placements(nodes: LayoutNode[]): Map<string, Record<string, number>> {
+	return new Map(
+		nodes.map((n) => [
+			n.node.id,
+			{ x: n.x, y: n.y, cardWidth: n.cardWidth, cardHeight: n.cardHeight },
+		]),
+	);
 }
 
 function overlaps(a: LayoutNode, b: LayoutNode): boolean {
@@ -227,6 +249,8 @@ test("laying out the same tree twice gives the same result", () => {
 		y: n.y,
 		width: n.width,
 		height: n.height,
+		cardWidth: n.cardWidth,
+		cardHeight: n.cardHeight,
 		side: n.side,
 		branch: n.branch,
 	}));
@@ -247,6 +271,8 @@ test("laying out the same tree twice gives the same result", () => {
 				y: after.y,
 				width: after.width,
 				height: after.height,
+				cardWidth: after.cardWidth,
+				cardHeight: after.cardHeight,
 				side: after.side,
 				branch: after.branch,
 			},
@@ -293,4 +319,102 @@ test("without a weight the split still falls back to the visible leaves", () => 
 		root.children.map((c) => c.side),
 		[1, -1, -1],
 	);
+});
+
+// --- the card box and the node box -----------------------------------------
+//
+// A node is two boxes: `.mm-card`, and `.mm-node` around it holding the card
+// plus whatever annotation strip hangs below. The card is the only geometric
+// unit -- it is what a parent centres on, what a child is offset from and what
+// a connector anchors to -- and for cards of a given size, the strip does
+// exactly one thing: add space beneath. These lock that down.
+
+test("an annotation adds space below the card and moves nothing at all", () => {
+	// The strip is on the bottom-most node, so nothing is stacked after it and
+	// the only thing it can change is how tall the map is. Every card keeps its
+	// position and its size to the pixel.
+	const tree = (ann: number) =>
+		build({ children: [{ children: [leaf(), leaf()] }, { ...leaf(), ann }] });
+
+	const plain = layoutTree(tree(0), { ...OPTS, mode: "right" });
+	const annotated = layoutTree(tree(40), { ...OPTS, mode: "right" });
+
+	assert.equal(annotated.width, plain.width);
+	assert.equal(annotated.height, plain.height + 40, "the map grew by other than the strip");
+	assert.deepEqual([...placements(annotated.nodes).values()], [
+		...placements(plain.nodes).values(),
+	]);
+});
+
+test("the same holds for a branch the balanced layout mirrors to the left", () => {
+	const tree = (ann: number) =>
+		build({ children: [leaf(), leaf(), leaf(), { ...leaf(), ann }] });
+
+	const plain = layoutTree(tree(0), OPTS);
+	const annotated = layoutTree(tree(40), OPTS);
+
+	assert.ok(
+		annotated.nodes.some((n) => n.side === -1),
+		"the fixture put nothing on the left",
+	);
+	assert.equal(annotated.height, plain.height + 40);
+	assert.deepEqual([...placements(annotated.nodes).values()], [
+		...placements(plain.nodes).values(),
+	]);
+});
+
+test("a parent is centred on its children's cards, not on their node boxes", () => {
+	const root = build({ children: [{ children: [{ ...leaf(), ann: 40 }, leaf()] }] });
+	layoutTree(root, { ...OPTS, mode: "right" });
+
+	const parent = root.children[0];
+	const [first, last] = parent.children;
+	const cards = (first.y + first.cardHeight / 2 + (last.y + last.cardHeight / 2)) / 2;
+	const boxes = (first.y + first.height / 2 + (last.y + last.height / 2)) / 2;
+
+	assert.ok(Math.abs(parent.y + parent.cardHeight / 2 - cards) < 0.001);
+	// Not a tautology: the two centres really do differ once a strip is there.
+	assert.ok(Math.abs(cards - boxes) > 1, "the fixture did not separate the two boxes");
+});
+
+test("siblings are spaced by the whole node box, strip included", () => {
+	const root = build({ children: [{ ...leaf(), ann: 40 }, leaf()] });
+	layoutTree(root, { ...OPTS, mode: "right" });
+	const [a, b] = root.children;
+	assert.equal(b.y - (a.y + a.height), OPTS.verticalGap);
+	assert.equal(b.y - (a.y + a.cardHeight), OPTS.verticalGap + 40);
+});
+
+test("an annotation leaves its own card where it was among its children", () => {
+	const tree = (ann: number) => build({ children: [{ ...leaf(), ann, children: [leaf(), leaf()] }] });
+
+	const relative = (ann: number) => {
+		const root = tree(ann);
+		layoutTree(root, { ...OPTS, mode: "right" });
+		const parent = root.children[0];
+		const [first, last] = parent.children;
+		return {
+			x: parent.x,
+			childX: first.x,
+			fromFirst: parent.y - first.y,
+			span: last.y - first.y,
+		};
+	};
+
+	assert.deepEqual(relative(40), relative(0));
+});
+
+test("children are offset from the card's width, not the node box's", () => {
+	const root = build({ w: 120, nodeW: 300, children: [leaf()] });
+	layoutTree(root, { ...OPTS, mode: "right" });
+	assert.equal(root.children[0].x, root.x + root.cardWidth + OPTS.horizontalGap);
+});
+
+test("a left-side branch is mirrored on its card, not on its node box", () => {
+	const root = build({ w: 120, nodeW: 300, children: [leaf(), leaf(), leaf(), leaf()] });
+	layoutTree(root, OPTS);
+	const axis = root.x + root.cardWidth / 2;
+	for (const child of root.children.filter((c) => c.side === -1)) {
+		assert.equal(child.x + child.cardWidth, 2 * axis - (root.x + root.cardWidth + OPTS.horizontalGap));
+	}
 });

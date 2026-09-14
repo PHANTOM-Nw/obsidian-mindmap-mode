@@ -5,6 +5,7 @@ import { nextInlineToken } from "../model/inlineText.ts";
 import type { InlineKind } from "../model/inlineText.ts";
 import { renderMathInto } from "./math.ts";
 import { MATH_DISPLAY, MATH_INLINE } from "./mathSyntax.ts";
+import type { NodeMaxWidth } from "./nodeWidth.ts";
 
 /** Carried through the recursion so nested markup can report what it emitted. */
 interface InlineContext {
@@ -134,7 +135,10 @@ export function renderInline(el: HTMLElement, text: string): boolean {
 }
 
 export interface NodeElementOptions {
-	maxWidth: number;
+	/** Null means no annotation; an empty string is an explicit blank block. */
+	annotation: string | null;
+	/** Both caps from `nodeMaxWidth`: the node box, and the card's own text. */
+	maxWidth: NodeMaxWidth;
 	branchColors: boolean;
 	/** Render the text verbatim: code blocks and tables must not be marked up. */
 	preformatted: boolean;
@@ -190,9 +194,16 @@ export function buildNodeElement(
 	}
 	if (opts.collapsed) el.addClass("is-collapsed");
 	if (node.virtual) el.addClass("is-virtual");
-	el.style.maxWidth = `${opts.maxWidth}px`;
+	el.style.maxWidth = `${opts.maxWidth.node}px`;
 
-	const card = el.createDiv({ cls: "mm-card" });
+	// Two boxes, not one: `.mm-row` is the card's own row -- the card and the
+	// furniture positioned against it -- and the annotation strip hangs below
+	// it. Everything geometric refers to the row; the strip adds height beneath
+	// it, and may widen the node -- and with it the card, which fills the node
+	// box -- no further than the cap above. See the card-vs-node note in
+	// CLAUDE.md.
+	const row = el.createDiv({ cls: "mm-row" });
+	const card = row.createDiv({ cls: "mm-card" });
 
 	let checkbox: HTMLElement | null = null;
 	if (node.checkbox !== null) {
@@ -204,6 +215,10 @@ export function buildNodeElement(
 	}
 
 	const text = card.createDiv({ cls: "mm-text" });
+	// A cap of its own only where the node box carries the wider one: without
+	// it, a title under an annotation would wrap at the annotation's width
+	// rather than at its own.
+	if (opts.maxWidth.text !== null) text.style.maxWidth = `${opts.maxWidth.text}px`;
 	let hasMath = false;
 	if (opts.preformatted) {
 		el.dataset.block = "pre";
@@ -229,12 +244,13 @@ export function buildNodeElement(
 	}
 
 	// The furniture on the branch side of the card: the fold toggle, then the
-	// button that grows a child. One row, absolutely positioned, so neither can
-	// reach the measurements `measureAndPlace` takes off this element.
+	// button that grows a child. One row, absolutely positioned against
+	// `.mm-row` rather than against `.mm-node`, so it stays centred on the card
+	// and flush against it however far the annotation reaches below.
 	let toggle: HTMLElement | null = null;
 	let add: HTMLElement | null = null;
 	if (opts.hasChildren || opts.addable) {
-		const tools = el.createDiv({ cls: "mm-tools" });
+		const tools = row.createDiv({ cls: "mm-tools" });
 
 		if (opts.hasChildren) {
 			toggle = tools.createDiv({ cls: "mm-toggle" });
@@ -254,6 +270,22 @@ export function buildNodeElement(
 			add.setAttribute("aria-label", "Add child");
 			setIcon(add, "plus");
 			if (!add.firstElementChild) add.setText("+");
+		}
+	}
+
+	// Below the row, and a sibling of it: the strip is subordinate furniture,
+	// not part of the card. It is an ordinary block, so its width counts
+	// towards the node's `max-content`: a strip wider than the title widens
+	// the node, and the card with it, up to the cap the node carries.
+	if (opts.annotation !== null) {
+		el.addClass("has-annotation");
+		const annotation = el.createDiv({ cls: "mm-text mm-annotation" });
+		annotation.setAttribute("aria-label", "Annotation (double-click to edit)");
+		if (opts.annotation.trim() !== "") {
+			hasMath = renderInline(annotation, opts.annotation) || hasMath;
+		} else {
+			// Never empty: a blank strip still has to occupy its own line.
+			annotation.setText(opts.annotation || "\u00a0");
 		}
 	}
 

@@ -2,10 +2,25 @@ import type { MindNode } from "../model/types.ts";
 
 export type Side = -1 | 1;
 
+/**
+ * A node is two boxes, and the layout needs both.
+ *
+ * `width`/`height` are the whole `.mm-node`: the card, plus the annotation
+ * strip that may hang below it. That is the space the node occupies, so it is
+ * what siblings are spaced by and what the map's bounds are taken from.
+ *
+ * `cardWidth`/`cardHeight` are the `.mm-card` inside it. The card is the only
+ * thing the eye reads as the node, so it is what a parent centres itself on,
+ * what a child is offset from, and what a connector anchors to. An annotation
+ * hangs below the card, so it adds height to the node box and never moves the
+ * card inside it. It may widen the card, which fills the node box's width.
+ */
 export interface LayoutNode {
 	node: MindNode;
 	width: number;
 	height: number;
+	cardWidth: number;
+	cardHeight: number;
 	x: number;
 	y: number;
 	depth: number;
@@ -47,6 +62,8 @@ export function createLayoutNode(
 		node,
 		width: 0,
 		height: 0,
+		cardWidth: 0,
+		cardHeight: 0,
 		x: 0,
 		y: 0,
 		depth,
@@ -85,8 +102,13 @@ function placeGroup(
 /**
  * Position one subtree with its top edge at `top`, returning its total height.
  *
- * A parent sits at the vertical centre of its children. When the parent card is
- * taller than that span, the children are pushed down so nothing overlaps.
+ * A parent card sits at the vertical centre of its children's cards. When the
+ * parent card is taller than that span, the children are pushed down so nothing
+ * overlaps.
+ *
+ * Two boxes, two jobs: the extent this returns and the space the next sibling
+ * is stacked after are the whole node, annotation included, while the centring
+ * and the child offset are the card alone.
  */
 function place(n: LayoutNode, x: number, top: number, opts: LayoutOptions): number {
 	n.x = x;
@@ -95,13 +117,13 @@ function place(n: LayoutNode, x: number, top: number, opts: LayoutOptions): numb
 		return n.height;
 	}
 
-	const childX = x + n.width + opts.horizontalGap;
+	const childX = x + n.cardWidth + opts.horizontalGap;
 	let total = placeGroup(n.children, childX, top, opts);
 
 	const first = n.children[0];
 	const last = n.children[n.children.length - 1];
-	const centre = (first.y + first.height / 2 + (last.y + last.height / 2)) / 2;
-	n.y = centre - n.height / 2;
+	const centre = (first.y + first.cardHeight / 2 + (last.y + last.cardHeight / 2)) / 2;
+	n.y = centre - n.cardHeight / 2;
 
 	if (n.y < top) {
 		const delta = top - n.y;
@@ -121,9 +143,33 @@ function translate(n: LayoutNode, dx: number, dy: number): void {
 }
 
 function mirror(n: LayoutNode, axis: number): void {
-	n.x = 2 * axis - n.x - n.width;
+	n.x = 2 * axis - n.x - n.cardWidth;
 	n.side = -1;
 	for (const c of n.children) mirror(c, axis);
+}
+
+/**
+ * The vertical middle of the cards a placed group covers.
+ *
+ * The cards, not the node boxes. The root is centred on what its branches read
+ * as, and an annotation strip hanging off the bottom one is not something to
+ * counterbalance -- centring on the occupied box instead would slide every card
+ * on the map up by half the strip. With no strip anywhere this is exactly half
+ * the height `placeGroup` reports, which is what keeps it from moving a map
+ * that has none.
+ */
+function cardMiddle(group: LayoutNode[]): number {
+	if (group.length === 0) return 0;
+	let top = Infinity;
+	let bottom = -Infinity;
+	const stack = [...group];
+	while (stack.length > 0) {
+		const n = stack.pop() as LayoutNode;
+		if (n.y < top) top = n.y;
+		if (n.y + n.cardHeight > bottom) bottom = n.y + n.cardHeight;
+		stack.push(...n.children);
+	}
+	return (top + bottom) / 2;
 }
 
 function setSide(n: LayoutNode, side: Side): void {
@@ -174,23 +220,26 @@ export function layoutTree(root: LayoutNode, opts: LayoutOptions): LayoutResult 
 	});
 
 	root.x = 0;
-	root.y = -root.height / 2;
-	const childX = root.width + opts.horizontalGap;
+	root.y = -root.cardHeight / 2;
+	const childX = root.cardWidth + opts.horizontalGap;
 
 	if (opts.mode === "right" || root.children.length < 2) {
-		const total = placeGroup(root.children, childX, 0, opts);
-		for (const child of root.children) translate(child, 0, -total / 2);
+		placeGroup(root.children, childX, 0, opts);
+		const middle = cardMiddle(root.children);
+		for (const child of root.children) translate(child, 0, -middle);
 		setSideAll(root.children, 1);
 	} else {
 		const { right, left } = partition(root.children);
 
-		const totalRight = placeGroup(right, childX, 0, opts);
-		for (const child of right) translate(child, 0, -totalRight / 2);
+		placeGroup(right, childX, 0, opts);
+		const middleRight = cardMiddle(right);
+		for (const child of right) translate(child, 0, -middleRight);
 		setSideAll(right, 1);
 
-		const totalLeft = placeGroup(left, childX, 0, opts);
-		for (const child of left) translate(child, 0, -totalLeft / 2);
-		const axis = root.x + root.width / 2;
+		placeGroup(left, childX, 0, opts);
+		const middleLeft = cardMiddle(left);
+		for (const child of left) translate(child, 0, -middleLeft);
+		const axis = root.x + root.cardWidth / 2;
 		for (const child of left) mirror(child, axis);
 	}
 

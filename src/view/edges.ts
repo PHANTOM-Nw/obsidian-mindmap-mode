@@ -8,12 +8,19 @@ import type { ViewBox } from "./culling.ts";
  */
 const STROKE_PAD = 4;
 
-function anchorFor(n: LayoutNode, outgoing: boolean, side: number): [number, number] {
-	const y = n.y + n.height / 2;
+/**
+ * Where a connector meets a node: the middle of the card's face.
+ *
+ * The card, never the node box. An annotation hangs below the card without
+ * being part of it, so a `height/2` here would slide the connector down the
+ * side of an annotated card and leave it pointing at nothing.
+ */
+export function anchorFor(n: LayoutNode, outgoing: boolean, side: number): [number, number] {
+	const y = n.y + n.cardHeight / 2;
 	// Outgoing edges leave the face pointing at the children; incoming edges
 	// arrive on the opposite face.
 	const rightFace = outgoing ? side === 1 : side !== 1;
-	return [rightFace ? n.x + n.width : n.x, y];
+	return [rightFace ? n.x + n.cardWidth : n.x, y];
 }
 
 function strokeWidth(depth: number): number {
