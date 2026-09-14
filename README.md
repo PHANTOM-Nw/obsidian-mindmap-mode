@@ -121,24 +121,55 @@ decide — a drop anywhere on a top-level card reparents, as it always has. From
 the second level down, siblings run top to bottom in file order, and the edge of
 a card is where you change it.
 
-### Node annotations (scheme B)
+### Node annotations
 
-Lines beginning with `: ` under a heading or list item appear beneath its title in muted text with a vertical rule, instead of becoming separate branches. Consecutive lines preserve hard breaks; a lone `:` inserts a blank line. Long lines wrap at the maximum card width. Indent list annotations to the item's content column. Fenced and indented code remain ordinary body content.
+A line that begins with `: ` under a heading or a list item is an annotation:
+it hangs under that node's card in muted text behind a vertical rule instead
+of becoming a card of its own. Consecutive `: ` lines keep their line breaks,
+a lone `:` is a blank line inside the annotation, and a long line wraps at
+**Maximum card width**. The strip belongs to the node but not to the card, so
+it never widens a card and never moves one — all it does is take up space
+beneath.
 
 ```markdown
 ### Generalization
-: Transfer a skill to unfamiliar environments.
+: Transfers a skill to an unfamiliar environment.
 :
 : A second paragraph.
 
 - Adaptation
-  : Improve during use.
+  : Improves during use.
   : A second line.
 ```
 
-Double-click the annotation or use **Add annotation / Edit annotation** in the node menu. Enter adds a newline; Save or Ctrl/Cmd+Enter saves. The editor adds syntax prefixes automatically. Clear and save to remove an annotation. Source writes preserve unrelated text and annotations move with their owner. An external annotation change while the dialog is open blocks saving until the editor is reopened; copy the draft first.
+This is a convention of this plugin, not of Markdown. Obsidian's editing and
+reading views show a `: ` line as an ordinary line that happens to start with
+a colon, so the note still reads as a note everywhere else — nothing is
+rewritten to make the map work, and nothing is added to the file that only the
+map understands.
 
-Annotations remain visible when the node is folded and when **Show note content** is off. Disable **Inline annotations** in Appearance to restore the old body cards. Map search still searches titles only. Write `\: text` for a literal colon line, or `:word` without a space. Source filters leave annotations of excluded nodes as ordinary body content.
+Under a list, indent an annotation to the item's content column, the column
+the item's own text starts in. That column also says what the line belongs to:
+a `: ` line re-anchors the nesting to the item whose content column it
+matches, so list items written after it and indented deeper become that item's
+children rather than the previous item's. Four spaces past the content column
+is indented code, and fenced code is left alone entirely.
+
+Double-click an annotation, or pick **Add annotation** / **Edit annotation**
+from a node's context menu, to open a multiline editor. Enter inserts a line
+break, blank lines are kept, and the colon prefixes are written back to the
+file for you. `Ctrl`/`Cmd`+`Enter` or **Save** saves; saving an empty box
+removes the annotation. The write replaces only the annotation's own lines, so
+the rest of the note comes back byte-identical, and an annotation moves with
+the node it belongs to. If the annotation changed in the file while the editor
+was open, saving is refused and the editor stays open, so the draft is still
+there to copy.
+
+An annotation stays visible when its node is folded, and does not depend on
+**Show note content**. Turn **Inline annotations** off in Appearance to read
+`: ` lines as ordinary body cards again. Find in the mind map matches titles,
+not annotations. A node the source or heading-depth settings leave out of the
+map keeps its `: ` lines as ordinary body content.
 
 ### Paragraphs, code blocks and tables
 
