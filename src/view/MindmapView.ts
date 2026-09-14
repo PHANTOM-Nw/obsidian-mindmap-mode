@@ -2587,11 +2587,18 @@ export class MindmapView extends TextFileView implements MapController {
 						palette === null || branch < 0 ? null : palette[branch % palette.length],
 					nextId: randomId,
 					// A body card shows a preview; the file it goes into holds the
-					// block whole.
-					fullText: (item) =>
-						parsed && item.node.kind === "body"
-							? bodyRangeText(parsed, [item.node.lineStart, item.node.blockEnd])
-							: null,
+					// block whole. An annotation has no card of its own on the map
+					// -- and gets none in the file either: its text goes into the
+					// card it hangs under, which is where it is read, and the box
+					// that card is exported at already includes the strip.
+					fullText: (item) => {
+						if (!parsed) return null;
+						if (item.node.kind === "body") {
+							return bodyRangeText(parsed, [item.node.lineStart, item.node.blockEnd]);
+						}
+						if (item.node.annotationIndices.length === 0) return null;
+						return `${item.node.text}\n\n${annotationText(parsed, item.node)}`;
+					},
 				},
 			),
 		);
