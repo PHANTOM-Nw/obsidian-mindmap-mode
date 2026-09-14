@@ -326,8 +326,8 @@ test("without a weight the split still falls back to the visible leaves", () => 
 // A node is two boxes: `.mm-card`, and `.mm-node` around it holding the card
 // plus whatever annotation strip hangs below. The card is the only geometric
 // unit -- it is what a parent centres on, what a child is offset from and what
-// a connector anchors to -- and the strip may do exactly one thing: add space
-// beneath the card. These lock that down.
+// a connector anchors to -- and for cards of a given size, the strip does
+// exactly one thing: add space beneath. These lock that down.
 
 test("an annotation adds space below the card and moves nothing at all", () => {
 	// The strip is on the bottom-most node, so nothing is stacked after it and

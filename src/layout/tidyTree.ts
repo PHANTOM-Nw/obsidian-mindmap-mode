@@ -12,7 +12,8 @@ export type Side = -1 | 1;
  * `cardWidth`/`cardHeight` are the `.mm-card` inside it. The card is the only
  * thing the eye reads as the node, so it is what a parent centres itself on,
  * what a child is offset from, and what a connector anchors to. An annotation
- * may only add space beneath the card -- never move it, and never widen it.
+ * hangs below the card, so it adds height to the node box and never moves the
+ * card inside it. It may widen the card, which fills the node box's width.
  */
 export interface LayoutNode {
 	node: MindNode;

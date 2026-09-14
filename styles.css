@@ -384,18 +384,16 @@
  * The strip under the card: part of the node box, never a branch of its own and
  * never part of the card.
  *
- * `width: 0; min-width: 100%` is what keeps it subordinate. `.mm-node` is
- * `width: max-content`, so anything in its flow that is wider than the card
- * widens the card; a percentage minimum contributes nothing to that intrinsic
- * width, while the used width still resolves to the whole node -- the strip
- * wraps at exactly the card's width and can never set it. Horizontal margins
- * would escape the same way, so the inset is padding: 3px of rule plus 10px
- * puts the text at 13px, under the card's own text.
+ * An ordinary block in `.mm-node`'s flow, so its max-content width counts
+ * towards the node's: the node is as wide as the wider of the card's title and
+ * this strip, up to the inline max-width `nodeMaxWidth` gives it -- the
+ * note-content cap wherever there is a strip at all. The card fills the node
+ * box, so card and strip are always exactly as wide as each other. The inset is
+ * padding rather than margin, which keeps the rule on the card's own left edge:
+ * 3px of rule plus 10px puts the text at 13px, under the card's own text.
  */
 .mm-annotation {
 	box-sizing: border-box;
-	width: 0;
-	min-width: 100%;
 	margin: 7px 0 3px;
 	border-left: 3px solid var(--text-faint);
 	padding: 0 0 0 10px;

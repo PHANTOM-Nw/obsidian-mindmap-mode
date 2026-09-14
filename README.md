@@ -126,10 +126,11 @@ a card is where you change it.
 A line that begins with `: ` under a heading or a list item is an annotation:
 it hangs under that node's card in muted text behind a vertical rule instead
 of becoming a card of its own. Consecutive `: ` lines keep their line breaks,
-a lone `:` is a blank line inside the annotation, and a long line wraps at
-**Maximum card width**. The strip belongs to the node but not to the card, so
-it never widens a card and never moves one — all it does is take up space
-beneath.
+a lone `:` is a blank line inside the annotation, and a long line wraps at the
+width note content gets — **Maximum card width** times 1.6. An annotation may
+make its card wider than its title alone would, up to that width, while the
+title itself still wraps at **Maximum card width**; a card and the strip under
+it are always exactly as wide as each other.
 
 ```markdown
 ### Generalization

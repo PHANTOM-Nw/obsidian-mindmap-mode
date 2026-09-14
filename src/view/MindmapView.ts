@@ -54,6 +54,7 @@ import { Perf } from "./perf.ts";
 import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
 import type { NodeElement } from "./nodes.ts";
+import { nodeMaxWidth } from "./nodeWidth.ts";
 import { attachInteractions } from "./interactions.ts";
 import { SHORTCUTS, comboToString, resolveBindings } from "./shortcuts.ts";
 import type { KeyCombo, ShortcutBindings } from "./shortcuts.ts";
@@ -91,9 +92,6 @@ const BODY_ID_MARK = "$body";
 /** Body cards show their block in full up to this much, then trail off. */
 const BODY_PREVIEW_CHARS = 2000;
 const BODY_PREVIEW_LINES = 40;
-
-/** Note content gets more room than a topic title needs. */
-const BODY_WIDTH_FACTOR = 1.6;
 
 /**
  * How far past the edge of the viewport a card is still kept in the document,
@@ -1140,11 +1138,10 @@ export class MindmapView extends TextFileView implements MapController {
 			const node = layout.node;
 			const collapsed = this.collapsedKeys.has(node.key);
 			const isBody = node.kind === "body";
+			const hasAnnotation = node.annotationIndices.length > 0;
 			const element = buildNodeElement(this.nodeLayer, layout, {
-				annotation: node.annotationIndices.length > 0 ? annotationText(parsed, node) : null,
-				maxWidth: isBody
-					? Math.round(s.maxNodeWidth * BODY_WIDTH_FACTOR)
-					: s.maxNodeWidth,
+				annotation: hasAnnotation ? annotationText(parsed, node) : null,
+				maxWidth: nodeMaxWidth(node.kind, hasAnnotation, s.maxNodeWidth),
 				branchColors: s.branchColors,
 				preformatted: isBody && looksPreformatted(node.text),
 				expandable: isBody,
