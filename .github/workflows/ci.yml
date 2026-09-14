@@ -55,7 +55,7 @@ jobs:
       - name: Stage the plugin folder
         run: |
           mkdir -p dist/mindmap-mode
-          cp main.js manifest.json styles.css dist/mindmap-mode/
+          cp main.js manifest.json styles.css LICENSE dist/mindmap-mode/
 
       - uses: actions/upload-artifact@v4
         with:

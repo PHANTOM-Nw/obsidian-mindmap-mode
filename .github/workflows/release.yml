@@ -158,7 +158,7 @@ jobs:
             --title "$TAG" \
             --notes-file release-notes.md \
             --draft \
-            main.js manifest.json styles.css dist/mindmap-mode.zip
+            main.js manifest.json styles.css LICENSE dist/mindmap-mode.zip
 
       - name: Summary
         env:
