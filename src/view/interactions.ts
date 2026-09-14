@@ -17,6 +17,7 @@ export interface MapController {
 	selectedId(): string | null;
 	select(id: string | null): void;
 	beginEdit(id: string): void;
+	editAnnotation(id: string): void;
 
 	addChildTo(id: string): void;
 	addSiblingTo(id: string): void;
@@ -105,7 +106,7 @@ export function attachInteractions(controller: MapController): () => void {
 		// Links, but only in note content: a title is something you select and
 		// drag, and a link filling one would leave no way to grab the node.
 		const link = target.closest<HTMLElement>(".mm-link[data-href], .mm-embed[data-href]");
-		if (link?.closest('.mm-node[data-kind="body"]')) {
+		if (link?.closest('.mm-node[data-kind="body"], .mm-annotation')) {
 			const href = link.dataset.href;
 			if (href) controller.openLink(href, ev);
 			ev.preventDefault();
@@ -154,6 +155,10 @@ export function attachInteractions(controller: MapController): () => void {
 		const id = nodeIdFrom(target);
 		if (!id) return;
 		ev.preventDefault();
+		if (target.closest(".mm-annotation")) {
+			controller.editAnnotation(id);
+			return;
+		}
 		controller.beginEdit(id);
 	});
 

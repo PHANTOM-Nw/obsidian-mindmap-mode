@@ -33,6 +33,7 @@ function mindNode(text: string): MindNode {
 		lineStart: counter,
 		blockEnd: counter,
 		bodyRanges: [],
+		annotationIndices: [],
 		children: [],
 		parent: null,
 	};

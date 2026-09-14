@@ -121,6 +121,25 @@ decide — a drop anywhere on a top-level card reparents, as it always has. From
 the second level down, siblings run top to bottom in file order, and the edge of
 a card is where you change it.
 
+### Node annotations (scheme B)
+
+Lines beginning with `: ` under a heading or list item appear beneath its title in muted text with a vertical rule, instead of becoming separate branches. Consecutive lines preserve hard breaks; a lone `:` inserts a blank line. Long lines wrap at the maximum card width. Indent list annotations to the item's content column. Fenced and indented code remain ordinary body content.
+
+```markdown
+### Generalization
+: Transfer a skill to unfamiliar environments.
+:
+: A second paragraph.
+
+- Adaptation
+  : Improve during use.
+  : A second line.
+```
+
+Double-click the annotation or use **Add annotation / Edit annotation** in the node menu. Enter adds a newline; Save or Ctrl/Cmd+Enter saves. The editor adds syntax prefixes automatically. Clear and save to remove an annotation. Source writes preserve unrelated text and annotations move with their owner. An external annotation change while the dialog is open blocks saving until the editor is reopened; copy the draft first.
+
+Annotations remain visible when the node is folded and when **Show note content** is off. Disable **Inline annotations** in Appearance to restore the old body cards. Map search still searches titles only. Write `\: text` for a literal colon line, or `:word` without a space. Source filters leave annotations of excluded nodes as ordinary body content.
+
 ### Paragraphs, code blocks and tables
 
 Content that is not a heading or a list item stays exactly where it is in the
