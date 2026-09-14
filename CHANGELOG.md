@@ -19,6 +19,10 @@ the entry has to read correctly in both.
 - 注释在导图里直接编辑：双击注释，或在节点右键菜单里选 **Add annotation** / **Edit annotation**，打开一个多行编辑框。编辑框里按 Enter 换行，冒号前缀由插件写回文件；`Ctrl`/`Cmd`+`Enter` 或 **Save** 保存，清空后保存即删除注释。写回只替换注释所在的那几行，其余正文一个字节都不动。<br>Annotations are edited on the map: double-click one, or pick **Add annotation** / **Edit annotation** from a node's context menu, to open a multiline editor. Enter inserts a line break and the plugin writes the colon prefixes back to the file; `Ctrl`/`Cmd`+`Enter` or **Save** saves, and saving an empty box removes the annotation. The write replaces only the annotation's own lines, leaving the rest of the note byte-identical.
 - 设置的 Appearance 里新增 **Inline annotations** 开关，默认打开。已有的笔记里凡是以 `: ` 开头的正文行，从这个版本起都会显示为所属节点的注释，而不再是各自独立的正文卡片；关掉这个开关就恢复成原来的正文卡片。<br>An **Inline annotations** toggle in the settings' Appearance group, on by default. In notes you already have, any body line beginning with `: ` now renders as its owner's annotation rather than as a body card of its own; turning the toggle off restores those body cards.
 
+### 修复 / Fixed
+
+- 取消勾选不再连复选框一起删掉：`- [x] text` 取消勾选后回到 `- [ ] text`，除方括号里那一个字符外整行逐字节不变。`Ctrl`/`Cmd`+`Enter` 和卡片上的复选框现在只在 `[ ]` 和 `[x]` 之间切换，没有复选框的列表项则得到一个空的；删除复选框改由节点右键菜单里的 **Remove checkbox** 负责，同一个位置也能给普通列表项 **Add checkbox**。<br>Unchecking no longer takes the checkbox with it: `- [x] text` goes back to `- [ ] text`, byte for byte apart from the character inside the brackets. `Ctrl`/`Cmd`+`Enter` and the checkbox on the card now move between `[ ]` and `[x]` only, and give an item without a checkbox an empty one; **Remove checkbox** in a node's context menu is what takes one away, and **Add checkbox** in the same place puts one on a plain list item.
+
 ## [1.1.0] - 2026-09-14
 
 ### 新增 / Added

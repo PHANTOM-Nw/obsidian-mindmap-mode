@@ -1,7 +1,7 @@
 import { isBlank, replaceLine, spliceLines, toText } from "./lines.ts";
 import type { LineDoc } from "./lines.ts";
 import { isAncestor, renderNodeLine } from "./types.ts";
-import type { MindNode, ParsedDoc } from "./types.ts";
+import type { CheckboxState, MindNode, ParsedDoc } from "./types.ts";
 import {
 	childSpecFor,
 	isHeadingLike,
@@ -202,17 +202,44 @@ export function deleteNode(parsed: ParsedDoc, node: MindNode): Mutation {
 	return done(doc, Math.max(node.parent.lineStart, -1));
 }
 
-export function toggleCheckbox(parsed: ParsedDoc, node: MindNode): Mutation {
+/**
+ * Write a checkbox state onto a list item, or take the checkbox away with
+ * `null`. Only the item's own marker line is rewritten; the spacing around the
+ * box is the file's own, so a state change is the three characters inside the
+ * brackets and nothing else.
+ */
+export function setCheckbox(
+	parsed: ParsedDoc,
+	node: MindNode,
+	next: CheckboxState,
+): Mutation {
 	if (isHeadingLike(node) || node.virtual || node.lineStart < 0) {
 		return unchanged(parsed);
 	}
-	// Cycle none -> unchecked -> checked -> none, so an accidental add is easy
-	// to take back.
-	const next = node.checkbox === null ? " " : node.checkbox === " " ? "x" : null;
+	if (next === node.checkbox) return unchanged(parsed);
 	const spacing = node.spacing || " ";
 	const check = next === null ? "" : `[${next}]${node.checkboxSpacing || " "}`;
 	const line = node.indent + node.marker + spacing + check + node.text + node.suffix;
 	return done(replaceLine(parsed.doc, node.lineStart, line), node.lineStart);
+}
+
+/**
+ * Tick a list item off, or clear it again. An item with no checkbox gets an
+ * empty one.
+ *
+ * Unchecking returns `[x]` to `[ ]` and never removes the box: the card draws
+ * its checkbox only for an item that has one, so a removal here would take the
+ * control away under the pointer that just pressed it, and leave a plain bullet
+ * where the user asked for an unticked task. `removeCheckbox` is the way a
+ * checkbox goes.
+ */
+export function toggleCheckbox(parsed: ParsedDoc, node: MindNode): Mutation {
+	return setCheckbox(parsed, node, node.checkbox === " " ? "x" : " ");
+}
+
+/** Back to a plain list item, whatever the box said. */
+export function removeCheckbox(parsed: ParsedDoc, node: MindNode): Mutation {
+	return setCheckbox(parsed, node, null);
 }
 
 export function canMove(node: MindNode, newParent: MindNode): boolean {

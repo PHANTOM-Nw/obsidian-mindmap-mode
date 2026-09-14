@@ -65,7 +65,7 @@ reading.
 | Arrow keys | Move the selection |
 | Drag a card onto another | Reparent it |
 | Drag onto a card's top / bottom edge | Drop it in beside that card, above or below |
-| `Ctrl`/`Cmd`+`Enter` | Cycle the checkbox: none → `[ ]` → `[x]` → none |
+| `Ctrl`/`Cmd`+`Enter` | Check or uncheck: `[ ]` ⇄ `[x]`, and an item with no checkbox gets one (**Remove checkbox** in the context menu takes it away) |
 | `Ctrl`/`Cmd`+`Z` | Undo (`Shift` to redo) |
 | `Ctrl`/`Cmd`+`0` | Fit the map to the window |
 | `Ctrl`/`Cmd`+`=` / `-` | Zoom in / out |

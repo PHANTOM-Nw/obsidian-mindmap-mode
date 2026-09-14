@@ -32,6 +32,7 @@ import {
 	reorderDown,
 	reorderUp,
 	replaceBodyRange,
+	removeCheckbox,
 	toggleCheckbox,
 } from "../model/mutate.ts";
 import type { Mutation } from "../model/mutate.ts";
@@ -1914,6 +1915,10 @@ export class MindmapView extends TextFileView implements MapController {
 		this.withNode(id, (parsed, node) => this.apply(toggleCheckbox(parsed, node)));
 	}
 
+	removeCheck(id: string): void {
+		this.withNode(id, (parsed, node) => this.apply(removeCheckbox(parsed, node)));
+	}
+
 	toggleFold(id: string): void {
 		this.withNode(id, (_parsed, node) => {
 			// Has to agree with the `hasChildren` that decided whether to draw the
@@ -2020,6 +2025,19 @@ export class MindmapView extends TextFileView implements MapController {
 				.setTitle(node.annotationIndices.length ? "Edit annotation" : "Add annotation")
 				.setIcon("sticky-note")
 				.onClick(() => this.editAnnotation(id)));
+		}
+		// Checking a task never takes its checkbox away -- so removing one lives
+		// here, where adding one does too.
+		if (node.kind === "listitem") {
+			menu.addItem((item) =>
+				item
+					.setTitle(node.checkbox === null ? "Add checkbox" : "Remove checkbox")
+					.setIcon(node.checkbox === null ? "square-check" : "square")
+					.onClick(() => {
+						if (node.checkbox === null) this.toggleCheck(id);
+						else this.removeCheck(id);
+					}),
+			);
 		}
 		if (node.parent) {
 			menu.addItem((item) =>
