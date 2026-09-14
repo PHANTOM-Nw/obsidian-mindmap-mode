@@ -369,12 +369,14 @@ export class MindmapView extends TextFileView implements MapController {
 		this.canvas = new Canvas(this.contentEl, {
 			wheel: plugin.settings.wheel,
 			// Only blank space starts a pan; everything a node owns belongs to the
-			// drag and click handlers. `.mm-tools` — the toggle and add button —
-			// has to be named explicitly: it hangs off `.mm-node`, outside the
-			// card, and letting a pan start there means the canvas takes pointer
+			// drag and click handlers. The whole node, not just the card: the
+			// toggle, the add button and the annotation strip all sit outside the
+			// card, and letting a pan start on one means the canvas takes pointer
 			// capture, after which Chromium retargets the click to the viewport
-			// and the button never fires.
-			canPan: (target) => !target.closest(".mm-card, .mm-tools, .mm-annotation"),
+			// and the button never fires. A leaf's empty tools slot is still
+			// pannable because that row is `pointer-events: none` until hovered,
+			// so the pointer never lands on the node at all.
+			canPan: (target) => !target.closest(".mm-node"),
 			// Every camera move ends up here, coalesced to one call a frame:
 			// panning, zooming, fitting, and the jumps that framing does.
 			onView: () => this.cullToView(),
@@ -1174,6 +1176,8 @@ export class MindmapView extends TextFileView implements MapController {
 			}
 			layout.width = before.width;
 			layout.height = before.height;
+			layout.cardWidth = before.cardWidth;
+			layout.cardHeight = before.cardHeight;
 			element.offscreen = true;
 			element.el.addClass("is-offscreen");
 			reused++;
@@ -1357,6 +1361,11 @@ export class MindmapView extends TextFileView implements MapController {
 			if (!element || element.offscreen) continue;
 			layout.width = element.el.offsetWidth;
 			layout.height = element.el.offsetHeight;
+			// The card apart from the node: an annotation strip is inside
+			// `.mm-node` and below `.mm-card`, and the layout centres, anchors
+			// and offsets on the card while spacing siblings by the node.
+			layout.cardWidth = element.card.offsetWidth;
+			layout.cardHeight = element.card.offsetHeight;
 			element.measured = true;
 			measured++;
 		}
@@ -1491,11 +1500,22 @@ export class MindmapView extends TextFileView implements MapController {
 			const layout = this.layoutNodes[i];
 			const width = element.el.offsetWidth;
 			const height = element.el.offsetHeight;
+			const cardWidth = element.card.offsetWidth;
+			const cardHeight = element.card.offsetHeight;
 			element.measured = true;
 			measured++;
-			if (width === layout.width && height === layout.height) continue;
+			if (
+				width === layout.width &&
+				height === layout.height &&
+				cardWidth === layout.cardWidth &&
+				cardHeight === layout.cardHeight
+			) {
+				continue;
+			}
 			layout.width = width;
 			layout.height = height;
+			layout.cardWidth = cardWidth;
+			layout.cardHeight = cardHeight;
 			changed++;
 		}
 		return { measured, changed };
@@ -2062,8 +2082,11 @@ export class MindmapView extends TextFileView implements MapController {
 			return;
 		}
 
-		const cx = current.x + current.width / 2;
-		const cy = current.y + current.height / 2;
+		// Card centres, not node centres: an annotation hangs below the card
+		// without being part of it, and a step between cards should go where the
+		// cards look, not where the strips end.
+		const cx = current.x + current.cardWidth / 2;
+		const cy = current.y + current.cardHeight / 2;
 		let best: LayoutNode | null = null;
 		let bestScore = Infinity;
 
@@ -2072,8 +2095,8 @@ export class MindmapView extends TextFileView implements MapController {
 			// Body cards cannot hold the selection, so stepping onto one would
 			// leave the arrow keys apparently stuck.
 			if (this.bodyNodes.has(candidate.node.id)) continue;
-			const dx = candidate.x + candidate.width / 2 - cx;
-			const dy = candidate.y + candidate.height / 2 - cy;
+			const dx = candidate.x + candidate.cardWidth / 2 - cx;
+			const dy = candidate.y + candidate.cardHeight / 2 - cy;
 
 			let along: number;
 			let across: number;

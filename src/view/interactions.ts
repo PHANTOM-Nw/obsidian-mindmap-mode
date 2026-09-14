@@ -187,8 +187,14 @@ export function attachInteractions(controller: MapController): () => void {
 	 *
 	 * A rect is the right tool here -- this is hit-testing in screen space, where
 	 * the pointer already lives, not measuring a card for layout.
+	 *
+	 * The card's rect, not the node's: the highlight these zones choose is drawn
+	 * on `.mm-card`, and an annotation strip stretches `.mm-node` below it. Read
+	 * off the node, the "after" band would sit at the bottom of the strip while
+	 * the line marking it was drawn along the bottom of the card.
 	 */
-	const zoneOf = (el: HTMLElement, clientY: number): DropMode => {
+	const zoneOf = (node: HTMLElement, clientY: number): DropMode => {
+		const el = node.querySelector<HTMLElement>(".mm-card") ?? node;
 		const rect = el.getBoundingClientRect();
 		const edge = Math.min(rect.height * 0.3, 14);
 		if (clientY < rect.top + edge) return "before";

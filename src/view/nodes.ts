@@ -194,7 +194,12 @@ export function buildNodeElement(
 	if (node.virtual) el.addClass("is-virtual");
 	el.style.maxWidth = `${opts.maxWidth}px`;
 
-	const card = el.createDiv({ cls: "mm-card" });
+	// Two boxes, not one: `.mm-row` is the card's own row -- the card and the
+	// furniture positioned against it -- and the annotation strip hangs below
+	// it. Everything geometric refers to the row; the strip may only add height
+	// to `.mm-node` beneath it. See the card-vs-node note in CLAUDE.md.
+	const row = el.createDiv({ cls: "mm-row" });
+	const card = row.createDiv({ cls: "mm-card" });
 
 	let checkbox: HTMLElement | null = null;
 	if (node.checkbox !== null) {
@@ -214,17 +219,6 @@ export function buildNodeElement(
 		hasMath = renderInline(text, node.text);
 	}
 
-	if (opts.annotation !== null) {
-		el.addClass("has-annotation");
-		const annotation = el.createDiv({ cls: "mm-text mm-annotation" });
-		annotation.setAttribute("aria-label", "Annotation (double-click to edit)");
-		if (opts.annotation.trim() !== "") {
-			hasMath = renderInline(annotation, opts.annotation) || hasMath;
-		} else {
-			annotation.setText(opts.annotation || "\u00a0");
-		}
-	}
-
 	// Inside the card, not beside it. `canPan` already lets a pointerdown on
 	// `.mm-card` through, and anything outside it would have to be named there
 	// too or the canvas takes pointer capture and swallows the click.
@@ -242,12 +236,13 @@ export function buildNodeElement(
 	}
 
 	// The furniture on the branch side of the card: the fold toggle, then the
-	// button that grows a child. One row, absolutely positioned, so neither can
-	// reach the measurements `measureAndPlace` takes off this element.
+	// button that grows a child. One row, absolutely positioned against
+	// `.mm-row` rather than against `.mm-node`, so it stays centred on the card
+	// and flush against it however far the annotation reaches below.
 	let toggle: HTMLElement | null = null;
 	let add: HTMLElement | null = null;
 	if (opts.hasChildren || opts.addable) {
-		const tools = el.createDiv({ cls: "mm-tools" });
+		const tools = row.createDiv({ cls: "mm-tools" });
 
 		if (opts.hasChildren) {
 			toggle = tools.createDiv({ cls: "mm-toggle" });
@@ -267,6 +262,21 @@ export function buildNodeElement(
 			add.setAttribute("aria-label", "Add child");
 			setIcon(add, "plus");
 			if (!add.firstElementChild) add.setText("+");
+		}
+	}
+
+	// Below the row, and a sibling of it: the strip is subordinate furniture,
+	// not part of the card. `.mm-annotation` is sized `width: 0; min-width:
+	// 100%`, so it wraps at the card's width without ever widening it.
+	if (opts.annotation !== null) {
+		el.addClass("has-annotation");
+		const annotation = el.createDiv({ cls: "mm-text mm-annotation" });
+		annotation.setAttribute("aria-label", "Annotation (double-click to edit)");
+		if (opts.annotation.trim() !== "") {
+			hasMath = renderInline(annotation, opts.annotation) || hasMath;
+		} else {
+			// Never empty: a blank strip still has to occupy its own line.
+			annotation.setText(opts.annotation || "\u00a0");
 		}
 	}
 
