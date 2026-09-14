@@ -2471,9 +2471,17 @@ export class MindmapView extends TextFileView implements MapController {
 
 		const blocks: DialogBlock[] = [];
 		node.bodyRanges.forEach((range, index) => {
-			if (only !== undefined && index !== only) return;
+			// One block when a body card asked; otherwise every block the node
+			// owns -- except its annotation, which is not note content the way a
+			// paragraph is. It has its own editor, and `childrenOf` has already
+			// kept it from becoming a card of its own.
+			if (only === undefined ? node.annotationIndices.includes(index) : index !== only) {
+				return;
+			}
 			blocks.push({ index, range, text: bodyRangeText(parsed, range) });
 		});
+		// Nothing left to show: a node whose only body ranges are annotations has
+		// no note content, exactly like one with no body ranges at all.
 		if (blocks.length === 0) return;
 
 		// Only one panel at a time: a dialog opened over the shortcuts popover
