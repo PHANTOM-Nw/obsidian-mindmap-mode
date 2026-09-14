@@ -18,6 +18,10 @@ MindNode, except the data never stops being your markdown note.
   generated, copied, or written to a sidecar file.
 - **Your outline is the map.** Headings nest by level; nested bullets hang under
   the heading they belong to. What you already wrote is the structure.
+- **Notes on a node.** A line written as `: text` under a heading or a bullet
+  becomes that node's [annotation](#node-annotations) — muted text under its
+  card, not a card of its own. Obsidian's editing and reading views show the
+  same line as an ordinary paragraph that starts with a colon.
 - **Opens folded.** A map starts at the root plus its top-level branches, each
   toggle showing how many nodes are hiding behind it. Open one branch and you get
   one more level, not the whole subtree.
@@ -51,10 +55,11 @@ reading.
 | Input | Action |
 | --- | --- |
 | Double-click / `F2` | Edit the node text inline |
+| Double-click an annotation | Edit the `: ` lines under that card |
 | **⤢** on a content card | Show the whole block, rendered |
 | Click a link in a content card | Open it — note, heading, PDF, attachment or web address |
 | **+** beside a card | New child |
-| Right-click a card | The node's menu: add a child, add a sibling above or below, fold, rename, delete |
+| Right-click a card | The node's menu: add a child, add a sibling above or below, annotate, fold, rename, delete |
 | `Enter` | New sibling |
 | `Tab` | New child |
 | `Shift`+`Tab` | Outdent |
@@ -264,9 +269,14 @@ real notes.
 
 Node source (headings and lists / headings only / lists only), deepest heading
 level, root node policy, indent unit for new list items, layout (balanced or
-single-sided), branch colours, whether note content appears as cards, card
-width, spacing, wheel behaviour, whether to remember fold state, and whether to
-add the header button.
+single-sided), branch colours, whether note content appears as cards, whether
+`: ` lines render as annotations, card width, spacing, wheel behaviour, whether
+to remember fold state, and whether to add the header button.
+
+**Inline annotations**, in Appearance, is on: a `: text` line under a heading or
+a list item is drawn as that node's [annotation](#node-annotations) rather than
+as a body card of its own. Turn it off and every such line is an ordinary
+content card again — nothing in the note changes either way.
 
 Turning **Remember fold state** off makes every map open at the root plus its
 top-level branches, as it did before. There is also a command, *Forget the saved

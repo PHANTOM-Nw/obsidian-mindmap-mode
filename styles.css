@@ -418,6 +418,12 @@
 	white-space: pre-wrap;
 }
 
+.mm-annotation-hint {
+	margin: 6px 0 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
 .mm-placeholder {
 	color: var(--text-faint);
 	font-style: italic;
