@@ -57,7 +57,7 @@ reading.
 | Double-click / `F2` | Edit the node text inline |
 | Double-click an annotation | Edit the `: ` lines under that card |
 | **⤢** on a content card | Show the whole block, rendered |
-| Click a link in a content card | Open it — note, heading, PDF, attachment or web address |
+| Click a link on any card | Open it — note, heading, PDF, attachment or web address. Press and drag the same link and the node still moves |
 | **+** beside a card | New child |
 | Right-click a card | The node's menu: add a child, add a sibling above or below, annotate, fold, rename, delete |
 | `Enter` | New sibling |
