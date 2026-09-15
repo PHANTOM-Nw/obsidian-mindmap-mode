@@ -11,6 +11,14 @@ line. The `<br>` is deliberate — a plain newline renders as a line break in
 release notes but collapses to a space when this file is viewed on GitHub, and
 the entry has to read correctly in both.
 
+## [1.1.2] - 2026-09-15
+
+### 修复 / Fixed
+
+- 在导图之外改动笔记 —— 另一个面板、同步、或 Obsidian 之外的编辑器 —— 现在会立即反映到打开着的导图上。从 1.1.0 起，这类改动只有把标签页切出导图模式再切回来才看得到。<br>Editing the note outside the map — in another pane, by sync, or in an editor outside Obsidian — now updates an open map immediately. Since 1.1.0 such a change only showed up after toggling the tab out of mind-map mode and back.
+- 标题、列表项、任务项和根节点卡片里的链接现在点一下就能打开，和正文卡片、注释里的链接一样；按住同一个链接拖动，拖的仍然是节点；在链接上双击只会把它打开一次，不会顺带弹出编辑框。<br>A link in a heading, a list item, a task item or the root card now opens on a click, the way links in note content and annotations already did. Pressing and dragging the same link still moves the node, and a double-click on a link opens it once without opening the inline editor.
+- 拖动节点之后的第一次点击有时会被吞掉，现在不会了。<br>The first click after dragging a node was sometimes ignored; it is not any more.
+
 ## [1.1.1] - 2026-09-14
 
 ### 新增 / Added
