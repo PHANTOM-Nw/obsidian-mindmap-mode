@@ -216,14 +216,16 @@ export default class MindmapPlugin extends Plugin {
 	 * One notice per update, on the load that follows it, and a record of the
 	 * version so the next load stays quiet.
 	 *
-	 * An update from the plugin browser is silent, and inline annotations redraw
-	 * `: ` lines in notes the user already has -- so the change announces itself
-	 * once rather than waiting to be noticed.
+	 * An update from the plugin browser is silent, so a release that changes
+	 * what the user already has says so itself. `UPDATE_NOTICE` belongs to
+	 * whichever version has something to say, and nothing is shown for any
+	 * other -- but the version is recorded either way, so the next notice still
+	 * fires exactly once.
 	 */
 	private async reviewVersion(): Promise<void> {
 		const current = this.manifest.version;
 		if (shouldAnnounce(this.lastSeenVersion, current, this.freshInstall)) {
-			new Notice(UPDATE_NOTICE, UPDATE_NOTICE_MS);
+			new Notice(UPDATE_NOTICE.text, UPDATE_NOTICE_MS);
 		}
 		const record = versionToRecord(this.lastSeenVersion, current);
 		// Every ordinary load lands here with nothing to write.
