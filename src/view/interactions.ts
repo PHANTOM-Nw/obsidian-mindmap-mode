@@ -1,4 +1,5 @@
 import type { Canvas } from "./canvas.ts";
+import { ClickGate, opensEditor } from "./clickIntent.ts";
 import { comboFromEvent, resolveAction } from "./shortcuts.ts";
 import type { ShortcutBindings } from "./shortcuts.ts";
 
@@ -31,7 +32,7 @@ export interface MapController {
 	toggleCheck(id: string): void;
 	/** Open a note-content block whole, rendered, in its own dialog. */
 	expandBody(id: string): void;
-	/** Follow a link written in a note-content card. */
+	/** Follow a link written in a card. */
 	openLink(href: string, ev: MouseEvent): void;
 	/** The node's own menu, at the pointer. */
 	showMenu(id: string, ev: MouseEvent): void;
@@ -75,6 +76,18 @@ function nodeIdFrom(target: EventTarget | null): string | null {
 	return el?.dataset.id ?? null;
 }
 
+const LINK_SELECTOR = ".mm-link[data-href], .mm-embed[data-href]";
+
+/** The link target under the pointer, or null where there is no link. */
+function hrefFrom(target: HTMLElement): string | null {
+	return target.closest<HTMLElement>(LINK_SELECTOR)?.dataset.href ?? null;
+}
+
+/** The kind of card the pointer is over, or null off every card. */
+function kindFrom(target: HTMLElement): string | null {
+	return target.closest<HTMLElement>(".mm-node")?.dataset.kind ?? null;
+}
+
 export function attachInteractions(controller: MapController): () => void {
 	const { canvas } = controller;
 	const viewport = canvas.viewport;
@@ -90,25 +103,27 @@ export function attachInteractions(controller: MapController): () => void {
 		cleanups.push(() => el.removeEventListener(type, handler as EventListener));
 	};
 
-	// A completed drag re-renders the map, so the click that follows pointerup
-	// would resolve a stale element to whatever now holds that id.
-	let suppressClick = false;
+	// Whether a click is this drag's tail or a click of its own. The rule, and
+	// why the flag also comes down on pointerdown, is in `clickIntent.ts`.
+	const gate = new ClickGate();
 
 	// --- clicking ------------------------------------------------------------
 	on(viewport, "click", (ev) => {
-		if (suppressClick) {
-			suppressClick = false;
+		const target = ev.target as HTMLElement;
+
+		// A link opens from any card. Dragging a node by one still works: only a
+		// press that never became a drag arrives here as a click.
+		const intent = gate.click({
+			kind: kindFrom(target),
+			href: hrefFrom(target),
+			clickCount: ev.detail,
+		});
+		if (intent.action === "swallow") {
 			ev.stopPropagation();
 			return;
 		}
-		const target = ev.target as HTMLElement;
-
-		// Links, but only in note content: a title is something you select and
-		// drag, and a link filling one would leave no way to grab the node.
-		const link = target.closest<HTMLElement>(".mm-link[data-href], .mm-embed[data-href]");
-		if (link?.closest('.mm-node[data-kind="body"], .mm-annotation')) {
-			const href = link.dataset.href;
-			if (href) controller.openLink(href, ev);
+		if (intent.action === "open") {
+			controller.openLink(intent.href, ev);
 			ev.preventDefault();
 			ev.stopPropagation();
 			return;
@@ -151,7 +166,8 @@ export function attachInteractions(controller: MapController): () => void {
 
 	on(viewport, "dblclick", (ev) => {
 		const target = ev.target as HTMLElement;
-		if (target.closest(".mm-expand")) return;
+		const onExpand = target.closest(".mm-expand") !== null;
+		if (!opensEditor({ href: hrefFrom(target), onExpand })) return;
 		const id = nodeIdFrom(target);
 		if (!id) return;
 		ev.preventDefault();
@@ -274,6 +290,9 @@ export function attachInteractions(controller: MapController): () => void {
 	};
 
 	on(viewport, "pointerdown", (ev) => {
+		// Before every early return below: a new press is a new gesture, and
+		// whatever the last drag left owing is owed no longer.
+		gate.pointerDown();
 		if (ev.button !== 0 || controller.isEditing()) return;
 		const target = ev.target as HTMLElement;
 		if (target.closest(".mm-tools, .mm-checkbox")) return;
@@ -315,7 +334,7 @@ export function attachInteractions(controller: MapController): () => void {
 	const finishDrag = (ev: PointerEvent): void => {
 		if (dragId === null || ev.pointerId !== dragPointer) return;
 		if (dragging) {
-			suppressClick = true;
+			gate.dragEnded();
 			const under = document.elementFromPoint(ev.clientX, ev.clientY);
 			const targetEl =
 				under instanceof HTMLElement ? under.closest<HTMLElement>(".mm-node") : null;

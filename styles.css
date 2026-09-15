@@ -408,8 +408,6 @@
 	min-height: 1.5em;
 }
 
-.mm-annotation .mm-link[data-href] { cursor: pointer; }
-
 .mm-annotation-input {
 	box-sizing: border-box;
 	width: 100%;
@@ -446,10 +444,10 @@
 	border-bottom: 1px dotted currentColor;
 }
 
-/* Only in note content. A title is something you select and drag, so its links
-   stay text; the view wires the click for these alone. */
-.mm-node[data-kind="body"] .mm-link[data-href],
-.mm-node[data-kind="body"] .mm-embed[data-href] {
+/* A link opens from any card -- a title, an annotation, note content. The card
+   under it is still draggable, so the pointer marks the target, not the card. */
+.mm-link[data-href],
+.mm-embed[data-href] {
 	cursor: pointer;
 }
 
