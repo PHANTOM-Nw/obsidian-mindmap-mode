@@ -51,6 +51,7 @@ import { Canvas } from "./canvas.ts";
 import { Frame } from "./frame.ts";
 import { clampedMargin, covers, emptyPlan, overlaps, planCull, viewBoxFrom } from "./culling.ts";
 import type { CullPlan, ViewBox } from "./culling.ts";
+import { needsRepaint } from "./refresh.ts";
 import { Perf } from "./perf.ts";
 import { createEdgeLayer, renderEdges } from "./edges.ts";
 import { buildNodeElement } from "./nodes.ts";
@@ -354,6 +355,15 @@ export class MindmapView extends TextFileView implements MapController {
 	private popover: HTMLElement | null = null;
 	private dialog: BlockDialog | AnnotationDialog | null = null;
 	private needsFit = true;
+	/**
+	 * The note the map on screen was painted from, and the only thing a
+	 * `setViewData` is compared against. `null` means nothing is drawn: a fresh
+	 * view, a cleared one, a paint that threw, or one the pane had no size for.
+	 *
+	 * Deliberately not `TextFileView.data`, which Obsidian owns and sets from
+	 * the file before it calls `setViewData`.
+	 */
+	private drawnData: string | null = null;
 	private paintedEmpty = false;
 	private paintToken = 0;
 	/** Off unless the user asked for it, and one branch per call site when off. */
@@ -480,10 +490,12 @@ export class MindmapView extends TextFileView implements MapController {
 
 	override setViewData(data: string, clear: boolean): void {
 		// The save round-trip hands back the exact string that was just written,
-		// and a map already drawn from it has nothing to do about it. `clear`
-		// means a different file and is never skipped; neither is the first call
-		// for a file, which has no parse behind it yet.
-		if (!clear && data === this.data && this.parsed !== null) {
+		// and a map already drawn from it has nothing to do about it. Anything
+		// else does: an external edit -- another pane, sync, an editor outside
+		// Obsidian -- arrives here and nowhere else, and `this.data` is no use in
+		// telling the two apart because Obsidian has already set it from the file
+		// by the time this runs.
+		if (!needsRepaint(data, this.drawnData, clear)) {
 			this.perf.event("setViewData", { clear, skipped: true });
 			return;
 		}
@@ -520,6 +532,7 @@ export class MindmapView extends TextFileView implements MapController {
 
 	override clear(): void {
 		this.data = "";
+		this.drawnData = null;
 		this.parsed = null;
 		this.cancelFrame();
 		this.resized = false;
@@ -1203,6 +1216,13 @@ export class MindmapView extends TextFileView implements MapController {
 			reveal: this.pendingReveal,
 		};
 		this.measureAndPlace(rootLayout, visible, anchor, reason);
+		// Only now is the map on screen the note in `this.data`: past the parse
+		// and the build, either of which can throw and leave the last map up, and
+		// past the measurement that says whether anything was drawn at all -- a
+		// map painted into a pane with no size measures every card as zero, and
+		// `runFrame` repaints it when the pane gets one. Until one of those
+		// lands, a `setViewData` carrying this same note is still owed a paint.
+		if (!this.paintedEmpty) this.drawnData = this.data;
 		this.perf.span("paint", started, { reason, nodes: visible.length, reused });
 		if (!sawMath) return;
 
